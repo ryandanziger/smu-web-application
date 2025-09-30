@@ -1,0 +1,18 @@
+.btn-smu {
+  background-color: #00205B;
+  border-color: #00205B;
+  color: white;
+}
+
+.btn-smu:hover {
+  background-color: #001a47;
+  border-color: #001a47;
+}
+
+.bg-smu-gold {
+  background-color: #B9975B;
+}
+
+.text-smu-blue {
+  color: #00205B;
+}

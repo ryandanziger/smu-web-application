@@ -1,4 +1,3 @@
-
 import { useState } from 'react';
 import {
   Container,
@@ -22,7 +21,7 @@ const evaluationCriteria = [
   { key: 'collaboration', label: 'Collaboration and Leadership', scaleType: 'default' },
   { key: 'learning', label: 'Self-directedness and meta-learning', scaleType: 'default' },
   { key: 'communication', label: 'Communication', scaleType: 'default' },
-  { key: 'overall', label: 'Overall', scaleType: 'overall'}  // different scale
+  { key: 'overall', label: 'Overall', scaleType: 'overall'}
 ];
 
 function RatingInput({ label, value, onChange, name, error, scaleType = "default" }) {
@@ -35,28 +34,42 @@ function RatingInput({ label, value, onChange, name, error, scaleType = "default
       values: [0, 1, 2, 3, 4],
       description: "0= Poor, 1= Fair, 2= Good, 3= Very Good, 4= Excellent"
     }
-  };
+  }; 
 
   const currentScale = scales[scaleType];
+  const groupNameId = `${name}-rating-group`;
 
   return (
     <Form.Group className="mb-4 text-center">
-      <Form.Label className="fw-semibold text-smu-blue">{label}</Form.Label>
-      <div className="d-flex justify-content-center gap-3">
-        {currentScale.values.map((rating) => (
-          <Form.Check
-            key={rating}
-            inline
-            label={rating}
-            name={name}
-            type="radio"
-            value={rating}
-            checked={value === rating}
-            onChange={(e) => onChange(parseInt(e.target.value))}
-          />
-        ))}
+      <Form.Label className="fw-semibold text-smu-blue" htmlFor={groupNameId}>{label}</Form.Label>
+      <div className="d-flex justify-content-center gap-2" role="radiogroup" aria-labelledby={groupNameId}>
+        {currentScale.values.map((rating) => {
+          const ratingId = `${name}-${rating}`;
+          return (
+            <label
+              key={rating}
+              className="rating-button"
+              htmlFor={ratingId}
+            >
+              <input
+                id={ratingId}
+                type="radio"
+                name={name}
+                value={rating}
+                checked={value === rating}
+                onChange={(e) => onChange(parseInt(e.target.value))}
+                // The d-none class is REMOVED to allow the input to be clicked/focused.
+                // The visual hiding is now done via CSS rules on the input[type="radio"].
+              />
+              {/* This span wraps the number and receives the visual styling from CSS selectors */}
+              <span className="rating-number-wrapper">
+                <span className="rating-number">{rating}</span>
+              </span>
+            </label>
+          );
+        })}
       </div>
-      <Form.Text className="text-muted">{currentScale.description}</Form.Text>
+      <Form.Text className="text-muted d-block mt-2">{currentScale.description}</Form.Text>
       {error && <div className="text-danger mt-1">{error}</div>}
     </Form.Group>
   );

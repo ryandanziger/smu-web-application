@@ -1,4 +1,4 @@
-/* Global styles */
+/* global styles*/
 body {
   background-color: #F5F5F5; /* SMU Gray */
   font-family: 'Segoe UI', 'Roboto', 'Helvetica Neue', sans-serif;
@@ -6,12 +6,12 @@ body {
   padding: 0;
 }
 
-/* App container */
+/* app container */
 .App {
   text-align: center;
 }
 
-/* Header styling */
+/* header styling */
 .App-header {
   background-color: #00205B; /* SMU Blue */
   color: white;
@@ -19,20 +19,20 @@ body {
   text-align: center;
 }
 
-/* Title styling */
+/* title styling */
 h1, h2, h4 {
   color: #00205B; /* SMU Blue */
   text-align: center;
 }
 
-/* Card styling */
+/* card styling */
 .card-smu {
   background-color: #E6D3B3; /* SMU Light Gold */
   border: none;
   box-shadow: 0 0 10px rgba(0,0,0,0.1);
 }
 
-/* SMU-themed buttons */
+/* smu-themed buttons */
 .btn-smu {
   background-color: #00205B;
   border-color: #00205B;
@@ -44,18 +44,18 @@ h1, h2, h4 {
   border-color: #001a47;
 }
 
-/* Gold accent */
+/* gold accent */
 .bg-smu-gold {
   background-color: #B9975B;
   color: #00205B;
 }
 
-/* Progress bar customization */
+/* progress bar customization */
 .progress-bar.bg-smu-gold {
   background-color: #B9975B;
 }
 
-/* Rating selector alignment */
+/* rating selector alignment */
 .rating-group {
   display: flex;
   justify-content: center;
@@ -63,7 +63,7 @@ h1, h2, h4 {
   margin-bottom: 1rem;
 }
 
-/* Label styling */
+/* label styling */
 .rating-label {
   font-weight: 600;
   color: #00205B;
@@ -71,12 +71,12 @@ h1, h2, h4 {
   margin-bottom: 0.5rem;
 }
 
-/* Feedback textarea */
+/* feedback textarea */
 textarea {
   resize: vertical;
 }
 
-/* Footer */
+/* footer */
 footer {
   background-color: #F5F5F5;
   color: #666;

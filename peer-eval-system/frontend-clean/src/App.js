@@ -10,14 +10,13 @@ function App() {
       <Navbar expand="lg" style={{ backgroundColor: '#00205B' }} variant="dark">
         <Container>
           <Navbar.Brand href="#" className="fw-bold">
-            SMU Peer Evaluation
+         SMU Peer Evaluation
           </Navbar.Brand>
           <Navbar.Toggle aria-controls="smu-navbar" />
           <Navbar.Collapse id="smu-navbar">
             <Nav className="ms-auto">
               <Nav.Link href="#" className="text-light">Home</Nav.Link>
-              <Nav.Link href="#" className="text-light">About</Nav.Link>
-              <Nav.Link href="#" className="text-light">Contact</Nav.Link>
+              <Nav.Link href="#" className="text-light">Account</Nav.Link>
             </Nav>
           </Navbar.Collapse>
         </Container>
@@ -35,7 +34,7 @@ function App() {
       {/* Footer */}
       <footer className="text-center py-4 mt-5" style={{ backgroundColor: '#F5F5F5' }}>
         <p className="mb-0 text-muted">
-          &copy; {new Date().getFullYear()} Singapore Management University. All rights reserved.
+          &copy; {new Date().getFullYear()} Demo. For Educational Project.
         </p>
       </footer>
     </>

@@ -18,18 +18,32 @@ const mockTeammates = [
 ];
 
 const evaluationCriteria = [
-  { key: 'communication', label: 'Communication' },
-  { key: 'contribution', label: 'Contribution to Project' },
-  { key: 'reliability', label: 'Reliability' },
-  { key: 'teamwork', label: 'Teamwork & Collaboration' }
+  { key: 'criticalthink', label: 'Critical Thinking and Problem Solving', scaleType: 'default'},
+  { key: 'collaboration', label: 'Collaboration and Leadership', scaleType: 'default' },
+  { key: 'learning', label: 'Self-directedness and meta-learning', scaleType: 'default' },
+  { key: 'communication', label: 'Communication', scaleType: 'default' },
+  { key: 'overall', label: 'Overall', scaleType: 'overall'}  // different scale
 ];
 
-function RatingInput({ label, value, onChange, name, error }) {
+function RatingInput({ label, value, onChange, name, error, scaleType = "default" }) {
+  const scales = {
+    default: {
+      values: [0, 1, 2, 3, 4],
+      description: "0= Never, 1= Sometimes, 2= Usually, 3= Regularly, 4= Always"
+    },
+    overall: {
+      values: [0, 1, 2, 3, 4],
+      description: "0= Poor, 1= Fair, 2= Good, 3= Very Good, 4= Excellent"
+    }
+  };
+
+  const currentScale = scales[scaleType];
+
   return (
     <Form.Group className="mb-4 text-center">
       <Form.Label className="fw-semibold text-smu-blue">{label}</Form.Label>
       <div className="d-flex justify-content-center gap-3">
-        {[1, 2, 3, 4, 5].map((rating) => (
+        {currentScale.values.map((rating) => (
           <Form.Check
             key={rating}
             inline
@@ -42,7 +56,7 @@ function RatingInput({ label, value, onChange, name, error }) {
           />
         ))}
       </div>
-      <Form.Text className="text-muted">1 = Needs Improvement, 5 = Excellent</Form.Text>
+      <Form.Text className="text-muted">{currentScale.description}</Form.Text>
       {error && <div className="text-danger mt-1">{error}</div>}
     </Form.Group>
   );
@@ -54,10 +68,11 @@ export default function EvaluationForm() {
   const [showSuccess, setShowSuccess] = useState(false);
   const [errors, setErrors] = useState({});
   const [formData, setFormData] = useState({
+    criticalthink: null,
+    collaboration: null,
+    learning: null,
     communication: null,
-    contribution: null,
-    reliability: null,
-    teamwork: null,
+    overall: null,
     feedback: ''
   });
 
@@ -101,10 +116,11 @@ export default function EvaluationForm() {
 
   const resetForm = () => {
     setFormData({
+      criticalthink: null,
+      collaboration: null,
+      learning: null,
       communication: null,
-      contribution: null,
-      reliability: null,
-      teamwork: null,
+      overall: null,
       feedback: ''
     });
     setErrors({});
@@ -130,72 +146,75 @@ export default function EvaluationForm() {
     );
   }
 
-  return (
-    <Card className="card-smu">
-      <Card.Header className="text-white text-center" style={{ backgroundColor: '#00205B' }}>
-        <h4 className="mb-0">Peer Evaluation Form</h4>
-      </Card.Header>
-      <Card.Body>
-        <div className="mb-4">
-          <div className="d-flex justify-content-between small text-muted mb-2">
-            <span>Progress: {evaluations.length} of {mockTeammates.length} completed</span>
-            <span>{Math.round(progress)}%</span>
-          </div>
-          <ProgressBar now={progress} className="bg-smu-gold" />
+return (
+  <Card className="card-smu">
+    <Card.Header className="text-white text-center" style={{ backgroundColor: '#00205B' }}>
+      <h4 className="mb-0">Peer Evaluation Form</h4>
+    </Card.Header>
+    <Card.Body>
+      <div className="mb-4">
+        <div className="d-flex justify-content-between small text-muted mb-2">
+          <span>Progress: {evaluations.length} of {mockTeammates.length} completed</span>
+          <span>{Math.round(progress)}%</span>
         </div>
+        <ProgressBar now={progress} className="bg-smu-gold" />
+      </div>
 
-        <Alert variant="info" className="text-center">
-          <strong>Evaluating:</strong> {currentTeammate.name}
-          <br />
-          <small>Your responses are confidential. Please provide honest and constructive feedback.</small>
-        </Alert>
+      <Alert variant="info" className="text-center">
+        <strong>Evaluating:</strong> {currentTeammate.name}
+        <br />
+        <small> <strong> In your experience, how often does your peer demonstrate the following? 
+          Rate the frequency of the teamwork behavior for each of your group members 
+          by writing the corresponding number (see key) in the boxes provided. </strong></small>
+      </Alert>
 
-        <Form onSubmit={handleSubmit}>
-          {evaluationCriteria.map(({ key, label }) => (
-            <RatingInput
-              key={key}
-              label={label}
-              name={key}
-              value={formData[key]}
-              onChange={(value) => setFormData({ ...formData, [key]: value })}
-              error={errors[key]}
-            />
-          ))}
+      <Form onSubmit={handleSubmit}>
+        {evaluationCriteria.map(({ key, label, scaleType }) => (
+          <RatingInput
+            key={key}
+            label={label}
+            name={key}
+            value={formData[key]}
+            onChange={(value) => setFormData({ ...formData, [key]: value })}
+            error={errors[key]}
+            scaleType={scaleType}
+          />
+        ))}
 
-          <Form.Group className="text-center">
-            <Form.Label className="fw-semibold text-smu-blue">Written Feedback</Form.Label>
-            <Form.Control
-              as="textarea"
-              rows={4}
-              placeholder="Provide specific examples of this teammate's contributions, strengths, and areas for improvement..."
-              value={formData.feedback}
-              onChange={(e) => setFormData({ ...formData, feedback: e.target.value })}
-            />
-            <div className="d-flex justify-content-between mt-1">
-              <Form.Text className="text-muted">
-                Minimum 20 characters ({formData.feedback.length}/20)
-              </Form.Text>
-              {errors.feedback && <div className="text-danger">{errors.feedback}</div>}
-            </div>
-          </Form.Group>
-
-          <div className="d-flex justify-content-between">
-            <Button
-              variant="secondary"
-              disabled={currentTeammateIndex === 0}
-              onClick={() => {
-                setCurrentTeammateIndex(currentTeammateIndex - 1);
-                resetForm();
-              }}
-            >
-              Previous
-            </Button>
-            <Button type="submit" className="btn-smu">
-              {currentTeammateIndex < mockTeammates.length - 1 ? 'Next Teammate' : 'Submit All'}
-            </Button>
+        <Form.Group className="text-center">
+          <Form.Label className="fw-semibold text-smu-blue">Written Feedback</Form.Label>
+          <Form.Control
+            as="textarea"
+            rows={4}
+            placeholder="Provide specific examples of this teammate's contributions, strengths, and areas for improvement..."
+            value={formData.feedback}
+            onChange={(e) => setFormData({ ...formData, feedback: e.target.value })}
+          />
+          <div className="d-flex justify-content-between mt-1">
+            <Form.Text className="text-muted">
+              Minimum 20 characters ({formData.feedback.length}/20)
+            </Form.Text>
+            {errors.feedback && <div className="text-danger">{errors.feedback}</div>}
           </div>
-        </Form>
-      </Card.Body>
-    </Card>
-  );
+        </Form.Group>
+
+        <div className="d-flex justify-content-between">
+          <Button
+            variant="secondary"
+            disabled={currentTeammateIndex === 0}
+            onClick={() => {
+              setCurrentTeammateIndex(currentTeammateIndex - 1);
+              resetForm();
+            }}
+          >
+            Previous
+          </Button>
+          <Button type="submit" className="btn-smu">
+            {currentTeammateIndex < mockTeammates.length - 1 ? 'Next Teammate' : 'Submit All'}
+          </Button>
+        </div>
+      </Form>
+    </Card.Body>
+  </Card>
+);
 }

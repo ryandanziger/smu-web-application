@@ -29,7 +29,7 @@ const pool = new Pool({
 
 // Middleware
 app.use(cors({
-    origin: 'http://localhost:3000', // Allow requests from your React frontend
+    origin: '*', // Allow requests from your React frontend
 }));
 app.use(express.json()); 
 
@@ -139,7 +139,7 @@ app.post('/api/submit-evaluation', async (req, res) => {
 });
 
 // Start the server
-app.listen(port, () => {
-    console.log(`Server running on http://localhost:${port}`);
-    console.log('Teammate fetch API ready at /api/teammates');
+const PORT = process.env.PORT || 3001;
+app.listen(PORT, () => {
+    console.log(`Server running on port ${PORT}`);
 });

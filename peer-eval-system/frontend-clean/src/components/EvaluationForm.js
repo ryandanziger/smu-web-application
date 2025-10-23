@@ -197,7 +197,7 @@ export default function EvaluationForm() {
   useEffect(() => {
     const fetchTeammates = async () => {
       try {
-        const response = await fetch('http://localhost:3001/api/teammates');
+        const response = await fetch('/api/teammates');
         if (!response.ok) {
           throw new Error(`HTTP error! status: ${response.status}`);
         }
@@ -269,7 +269,7 @@ export default function EvaluationForm() {
     };
 
     try {
-        const response = await fetch('http://localhost:3001/api/submit-evaluation', { 
+        const response = await fetch('/api/submit-evaluation', { 
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',

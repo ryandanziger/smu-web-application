@@ -1,8 +1,18 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { Form, Spinner } from 'react-bootstrap'; 
+import { Form, Spinner } from 'react-bootstrap';
+import { useAuth } from '../contexts/AuthContext';
+import { useNavigate } from 'react-router-dom'; 
 
-// --- Color Palette and Constants (UNCHANGED) ---
+// --- Color Palette (matching Figma wireframes) ---
 const COLORS = {
+  TAN_BACKGROUND: 'rgba(138,112,76,0.9)', // Main form background
+  WHITE: 'white',
+  NAVY_BUTTON: '#141b4d', // Dark navy for buttons
+  PLACEHOLDER_TEXT: '#8a704c', // Tan color for placeholders
+  TEXT_PRIMARY: '#2d3748',
+  TEXT_SECONDARY: '#5C7094',
+  ERROR_RED: '#C97C7C',
+  BODY_BACKGROUND: 'white',
   HEADER_TEXT: '#2d3748', 
   SUB_HEADER_TEXT: '#5C7094', 
   UNDERLINE_BLUE: '#5C7094', 
@@ -11,12 +21,7 @@ const COLORS = {
   TAN_SELECTED: '#8B7355',
   NAVY_BASE: '#5C7094',
   NAVY_SELECTED: '#4A5568',
-  TEXT_PRIMARY: '#4A5568',     
-  TEXT_SECONDARY: '#A0AEC0',    
   SECTION_TITLE_COLOR: '#2d3748',
-  WHITE: 'white',
-  BODY_BACKGROUND: 'white',  
-  ERROR_RED: '#C97C7C',
   PROGRESS_GRAY: '#ccc',
   NAVY_DARK: '#001f44',
 };
@@ -37,21 +42,21 @@ function RatingButton({ value, selected, onChange, name, ratingId, colorType }) 
     const selectedColor = isTan ? COLORS.TAN_SELECTED : COLORS.NAVY_SELECTED;
   
     const style = {
-      backgroundColor: selected ? selectedColor : baseColor,
-      color: COLORS.WHITE,
-      minWidth: '50px', 
-      height: '30px',
-      borderRadius: '4px',
-      fontSize: '14px',
-      fontWeight: '500',
-      border: `1px solid ${selected ? selectedColor : baseColor}`,
+      backgroundColor: selected ? selectedColor : COLORS.WHITE,
+      color: selected ? COLORS.WHITE : COLORS.TEXT_PRIMARY,
+      minWidth: '60px', 
+      height: '54px',
+      borderRadius: '16px',
+      fontSize: '18px',
+      fontWeight: 'normal',
+      border: `2px solid ${selected ? selectedColor : baseColor}`,
       cursor: 'pointer',
-      transition: 'background-color 0.2s',
+      transition: 'all 0.2s',
       display: 'flex',
       alignItems: 'center',
       justifyContent: 'center',
       boxShadow: '0 2px 4px rgba(0, 0, 0, 0.1)',
-      fontFamily: 'Georgia, serif',
+      fontFamily: 'Joan, serif',
     };
   
     return (
@@ -88,14 +93,15 @@ function RatingInput({ label, value, onChange, name, error, scaleType = "default
       const currentScale = scales[scaleType];
       
       const headerStyle = {
-        fontSize: '24px', 
-        fontWeight: 'bold',
-        color: colorType === 'navy' ? COLORS.NAVY_SELECTED : COLORS.TAN_SELECTED, 
-        fontFamily: 'Georgia, serif',
+        fontSize: '28px', 
+        fontWeight: 'normal',
+        color: colorType === 'navy' ? COLORS.NAVY_BUTTON : COLORS.TAN_SELECTED, 
+        fontFamily: 'Joan, serif',
         marginTop: '30px', 
         marginBottom: '15px', 
         paddingLeft: '20px', 
         paddingRight: '20px',
+        textShadow: '0px 2px 4px rgba(0,0,0,0.1)',
       };
     
       const contentPaddingStyle = {
@@ -170,7 +176,15 @@ function RatingInput({ label, value, onChange, name, error, scaleType = "default
 export default function EvaluationForm() {
   // *** CRITICAL: Set the ID of the current user to exclude them from the list ***
   // Based on your data, let's assume the evaluator is Ryan Danziger (ID 3)
-  const MOCK_EVALUATOR_ID = 3; 
+  const MOCK_EVALUATOR_ID = 3;
+  
+  const { logout } = useAuth();
+  const navigate = useNavigate();
+
+  const handleLogout = () => {
+    logout();
+    navigate('/login');
+  }; 
 
   const [teammates, setTeammates] = useState([]); 
   const [isLoading, setIsLoading] = useState(true); 
@@ -197,7 +211,7 @@ export default function EvaluationForm() {
   useEffect(() => {
     const fetchTeammates = async () => {
       try {
-        const response = await fetch('/api/teammates');
+        const response = await fetch('http://localhost:3001/api/teammates');
         if (!response.ok) {
           throw new Error(`HTTP error! status: ${response.status}`);
         }
@@ -269,7 +283,7 @@ export default function EvaluationForm() {
     };
 
     try {
-        const response = await fetch('/api/submit-evaluation', { 
+        const response = await fetch('http://localhost:3001/api/submit-evaluation', { 
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
@@ -357,17 +371,30 @@ export default function EvaluationForm() {
           <p style={{ color: COLORS.TEXT_PRIMARY, marginBottom: '24px' }}>
             Completed and submitted evaluations for all {teammates.length} peers.
           </p>
-          <button
-            onClick={() => {
-              setShowSuccess(false);
-              setCurrentTeammateIndex(0);
-              setEvaluations([]);
-              resetForm();
-            }}
-            style={successButtonStyle}
-          >
-            START NEW EVALUATION
-          </button>
+          <div style={{ display: 'flex', gap: '10px', justifyContent: 'center' }}>
+            <button
+              onClick={() => {
+                setShowSuccess(false);
+                setCurrentTeammateIndex(0);
+                setEvaluations([]);
+                resetForm();
+              }}
+              style={successButtonStyle}
+            >
+              START NEW EVALUATION
+            </button>
+            <button
+              onClick={handleLogout}
+              style={{
+                ...successButtonStyle,
+                backgroundColor: COLORS.ERROR_RED,
+              }}
+              onMouseOver={(e) => e.target.style.backgroundColor = '#B56565'}
+              onMouseOut={(e) => e.target.style.backgroundColor = COLORS.ERROR_RED}
+            >
+              LOGOUT
+            </button>
+          </div>
         </div>
       );
   }
@@ -386,27 +413,14 @@ export default function EvaluationForm() {
   };
   
   const headerBannerStyle = {
-    backgroundImage: `linear-gradient(rgba(0,0,0,0.3), rgba(0,0,0,0.3)), url(/images/header-background.png)`, 
+    backgroundImage: `linear-gradient(rgba(0,0,0,0.4), rgba(0,0,0,0.4)), url("https://www.kenan-flagler.unc.edu/wp-content/uploads/nmc-images/2019/10/singapore_skyline-width2000height772.jpg")`, 
     backgroundSize: 'cover',
     backgroundPosition: 'center',
+    backgroundRepeat: 'no-repeat',
     padding: '50px 0 10px 0', 
     position: 'relative',
   };
 
-  const topNavBarStyle = {
-      display: 'flex',
-      justifyContent: 'space-between',
-      alignItems: 'center',
-      padding: '10px 20px',
-      position: 'absolute',
-      top: 0,
-      left: 0,
-      right: 0,
-      backgroundColor: COLORS.NAVY_DARK,
-      color: COLORS.WHITE,
-      fontSize: '18px',
-      fontWeight: 'bold',
-  }
 
   const titleContainerStyle = { 
     display: 'flex', 
@@ -462,27 +476,32 @@ export default function EvaluationForm() {
   };
 
   const submitButtonStyle = {
-    backgroundColor: COLORS.TAN_SELECTED,
+    backgroundColor: COLORS.NAVY_BUTTON,
     color: COLORS.WHITE,
-    padding: '10px 20px',
-    borderRadius: '4px',
-    fontWeight: '600',
+    padding: '12px 20px',
+    borderRadius: '16px',
+    fontWeight: 'normal',
     border: 'none',
     cursor: 'pointer',
     marginTop: '20px',
     transition: 'background-color 0.2s',
-    fontFamily: 'Georgia, serif',
+    fontFamily: 'Joan, serif',
+    fontSize: '24px',
+    textShadow: '0px 4px 4px rgba(0,0,0,0.25)',
   };
   
   const textareaStyle = {
     width: '100%',
-    padding: '8px 12px',
-    border: '1px solid #ccc',
-    borderRadius: '4px',
-    minHeight: '100px',
-    fontSize: '14px',
+    padding: '12px 16px',
+    border: 'none',
+    borderRadius: '16px',
+    minHeight: '120px',
+    fontSize: '18px',
     resize: 'vertical',
-    fontFamily: 'Georgia, serif',
+    fontFamily: 'Roboto, sans-serif',
+    fontWeight: '200',
+    backgroundColor: COLORS.WHITE,
+    color: COLORS.TEXT_PRIMARY,
   };
 
   const footerTextStyle = {
@@ -497,16 +516,6 @@ export default function EvaluationForm() {
 
   return (
     <div style={outerContainerStyle}>
-      {/* MOCK TOP NAV BAR */}
-      <div style={topNavBarStyle}>
-          <span>SMU Peer Evaluation</span> 
-          <div style={{ display: 'flex', gap: '20px', fontSize: '14px', alignItems: 'center'}}>
-            <span>Home</span>
-            <span>Account</span>
-            <span style={{ fontSize: '18px' }}>Menu ☰</span>
-          </div>
-      </div>
-
       {/* Header Banner - Full Width Image/Title */}
       <div style={headerBannerStyle}>
           <div style={titleContainerStyle}>

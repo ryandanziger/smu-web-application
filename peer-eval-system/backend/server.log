@@ -1,0 +1,11 @@
+[dotenv@17.2.3] injecting env (6) from .env -- tip: ⚙️  override existing env vars with { override: true }
+Server running on http://localhost:3001
+Teammate fetch API ready at /api/teammates
+PaPassword reset link for rdanziger@vt.edu: http://localhost:3000/reset-password?token=d2dc02f88f21874a6c92c110b1fda2db3585f5197f8270c98cb95f95302f26e2
+Password reset link for rdanziger@example.com: http://localhost:3000/reset-password?token=0f12d754ed42e3857e2d3efb4243339561c0bb8a774a9c9293c3f6e79d65771b
+ } ]
+Password reset link for rdanziger@example.com: http://localhost:3000/reset-password?token=e55d64358705caef280e1211ef423bce0728184c555ce2b12c216a290bab102a
+Password reset link for test@example.com: http://localhost:3000/reset-password?token=d151c73e27d2f0c2f278656e2ca141beeaa5c99c18e80837e6ea257ff4148f92
+Password reset link for rdanziger@example.com: http://localhost:3000/reset-password?token=b63d0a4464770299a4f9c408bc0b8d9701557c1bfa780b897367853f92e1ca70
+Password reset link for rdanziger@example.com: http://localhost:3000/reset-password?token=04a4b2f98dbb36d53d81cc253c7d00971851ec9d602996ec40bb890e8ba02dd4
+Password reset link for rdanziger@example.com: http://localhost:3000/reset-password?token=7f7b5ebcb1f110ea5c349c8edf257449a962dac98b149bd7b48c5e2bd2e174bb

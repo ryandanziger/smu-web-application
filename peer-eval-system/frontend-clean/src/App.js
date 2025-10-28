@@ -1,35 +1,106 @@
 import 'bootstrap/dist/css/bootstrap.min.css';
 import './App.css'; // Your custom SMU styles
-import EvaluationForm from './components/EvaluationForm.js'; // Adjust path if needed
+import Login from './components/Login.js';
+import Signup from './components/Signup.js';
+import ForgotPassword from './components/ForgotPassword.js';
+import ResetPassword from './components/ResetPassword.js';
+import EvaluationForm from './components/EvaluationForm.js';
+import Dashboard from './components/Dashboard.js';
+import StudentImport from './components/StudentImport.js';
+import { AuthProvider, useAuth } from './contexts/AuthContext.js';
+import { BrowserRouter as Router, Routes, Route, Link, Navigate } from 'react-router-dom';
 import { Container, Navbar, Nav, Row, Col } from 'react-bootstrap';
 
-function App() {
+// Protected Route Component
+function ProtectedRoute({ children, allowedRoles }) {
+  const { user, loading } = useAuth();
+
+  if (loading) {
+    return (
+      <div style={{ 
+        display: 'flex', 
+        justifyContent: 'center', 
+        alignItems: 'center', 
+        height: '100vh',
+        fontFamily: 'Georgia, serif'
+      }}>
+        Loading...
+      </div>
+    );
+  }
+
+  if (!user) {
+    return <Navigate to="/login" replace />;
+  }
+
+  if (allowedRoles && !allowedRoles.includes(user.role)) {
+    return <Navigate to="/login" replace />;
+  }
+
+  return children;
+}
+
+// Main App Content
+function AppContent() {
+  const { user, logout } = useAuth();
+
   return (
     <>
       {/* SMU Navbar */}
       <Navbar expand="lg" style={{ backgroundColor: '#00205B' }} variant="dark">
         <Container>
-          <Navbar.Brand href="#" className="fw-bold">
-         SMU Peer Evaluation
+          <Navbar.Brand as={Link} to="/" className="fw-bold">
+            SMU Peer Evaluation
           </Navbar.Brand>
           <Navbar.Toggle aria-controls="smu-navbar" />
           <Navbar.Collapse id="smu-navbar">
             <Nav className="ms-auto">
-              <Nav.Link href="#" className="text-light">Home</Nav.Link>
-              <Nav.Link href="#" className="text-light">Account</Nav.Link>
+              {user?.role === 'student' && (
+                <Nav.Link as={Link} to="/evaluation" className="text-light">Evaluation</Nav.Link>
+              )}
+              {user?.role === 'professor' && (
+                <>
+                  <Nav.Link as={Link} to="/student-import" className="text-light">Student Import</Nav.Link>
+                  <Nav.Link as={Link} to="/dashboard" className="text-light">Analytics</Nav.Link>
+                </>
+              )}
+              <Nav.Link onClick={logout} className="text-light" style={{ cursor: 'pointer' }}>
+                Logout ({user?.role})
+              </Nav.Link>
             </Nav>
           </Navbar.Collapse>
         </Container>
       </Navbar>
 
       {/* Main Content */}
-      <Container className="py-5">
-        <Row className="justify-content-center">
-          <Col md={10} lg={8}>
-            <EvaluationForm />
-          </Col>
-        </Row>
-      </Container>
+      <Routes>
+        <Route path="/login" element={<Login />} />
+        <Route path="/signup" element={<Signup />} />
+        <Route path="/forgot-password" element={<ForgotPassword />} />
+        <Route path="/reset-password" element={<ResetPassword />} />
+        <Route path="/" element={<Navigate to="/login" replace />} />
+        <Route path="/evaluation" element={
+          <ProtectedRoute allowedRoles={['student']}>
+            <Container className="py-5">
+              <Row className="justify-content-center">
+                <Col md={10} lg={8}>
+                  <EvaluationForm />
+                </Col>
+              </Row>
+            </Container>
+          </ProtectedRoute>
+        } />
+        <Route path="/student-import" element={
+          <ProtectedRoute allowedRoles={['professor']}>
+            <StudentImport />
+          </ProtectedRoute>
+        } />
+        <Route path="/dashboard" element={
+          <ProtectedRoute allowedRoles={['professor']}>
+            <Dashboard />
+          </ProtectedRoute>
+        } />
+      </Routes>
 
       {/* Footer */}
       <footer className="text-center py-4 mt-5" style={{ backgroundColor: '#F5F5F5' }}>
@@ -38,6 +109,16 @@ function App() {
         </p>
       </footer>
     </>
+  );
+}
+
+function App() {
+  return (
+    <AuthProvider>
+      <Router>
+        <AppContent />
+      </Router>
+    </AuthProvider>
   );
 }
 

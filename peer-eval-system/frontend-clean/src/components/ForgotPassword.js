@@ -90,7 +90,7 @@ export default function ForgotPassword() {
   };
 
   const titleStyle = {
-    fontSize: '40px',
+    fontSize: 'clamp(28px, 6vw, 40px)',
     fontWeight: 'normal',
     color: COLORS.WHITE,
     textAlign: 'center',
@@ -105,7 +105,7 @@ export default function ForgotPassword() {
 
   const labelStyle = {
     display: 'block',
-    fontSize: '24px',
+    fontSize: 'clamp(16px, 4.5vw, 22px)',
     fontWeight: 'normal',
     color: COLORS.WHITE,
     marginBottom: '8px',
@@ -118,14 +118,14 @@ export default function ForgotPassword() {
     padding: '12px 16px',
     border: 'none',
     borderRadius: '16px',
-    fontSize: '18px',
+    fontSize: 'clamp(15px, 4vw, 18px)',
     fontFamily: 'Roboto, sans-serif',
     fontWeight: '200',
     fontStyle: 'italic',
     color: COLORS.PLACEHOLDER_TEXT,
     backgroundColor: COLORS.WHITE,
     boxSizing: 'border-box',
-    height: '50px',
+    minHeight: '48px',
   };
 
   const buttonStyle = {
@@ -137,10 +137,10 @@ export default function ForgotPassword() {
     fontWeight: 'normal',
     border: 'none',
     cursor: 'pointer',
-    fontSize: '24px',
+    fontSize: 'clamp(18px, 5vw, 24px)',
     fontFamily: 'Joan, serif',
     transition: 'background-color 0.2s',
-    height: '60px',
+    minHeight: '52px',
     textShadow: '0px 4px 4px rgba(0,0,0,0.25)',
   };
 

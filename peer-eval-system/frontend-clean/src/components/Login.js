@@ -92,7 +92,7 @@ export default function Login() {
   };
 
   const titleStyle = {
-    fontSize: '40px',
+    fontSize: 'clamp(28px, 6vw, 40px)',
     fontWeight: 'normal',
     color: COLORS.WHITE,
     textAlign: 'center',
@@ -107,7 +107,7 @@ export default function Login() {
 
   const labelStyle = {
     display: 'block',
-    fontSize: '40px',
+    fontSize: 'clamp(18px, 5vw, 28px)',
     fontWeight: 'normal',
     color: COLORS.WHITE,
     marginBottom: '8px',
@@ -120,14 +120,14 @@ export default function Login() {
     padding: '12px 16px',
     border: 'none',
     borderRadius: '16px',
-    fontSize: '32px',
+    fontSize: 'clamp(16px, 4.5vw, 22px)',
     fontFamily: 'Roboto, sans-serif',
     fontWeight: '200',
     fontStyle: 'italic',
     color: COLORS.PLACEHOLDER_TEXT,
     backgroundColor: COLORS.WHITE,
     boxSizing: 'border-box',
-    height: '75px',
+    minHeight: '52px',
   };
 
   const selectStyle = {
@@ -144,10 +144,10 @@ export default function Login() {
     fontWeight: 'normal',
     border: 'none',
     cursor: 'pointer',
-    fontSize: '40px',
+    fontSize: 'clamp(18px, 5.5vw, 32px)',
     fontFamily: 'Joan, serif',
     transition: 'background-color 0.2s',
-    height: '75px',
+    minHeight: '56px',
     textShadow: '0px 4px 4px rgba(0,0,0,0.25)',
   };
 

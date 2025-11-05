@@ -34,10 +34,43 @@ const pool = new Pool({
 // --- END ONE-TIME SEQUENCE FIX FUNCTION ---
 
 // Middleware
-app.use(cors({
-    origin: process.env.CORS_ORIGIN || 'http://localhost:3000', // Allow requests from your React frontend
-}));
+// CORS configuration - allow requests from frontend
+const corsOptions = {
+    origin: function (origin, callback) {
+        const allowedOrigins = [
+            process.env.CORS_ORIGIN,
+            'http://localhost:3000',
+            'http://localhost:3001'
+        ].filter(Boolean); // Remove undefined values
+        
+        // Allow requests with no origin (like mobile apps or curl requests)
+        if (!origin) return callback(null, true);
+        
+        if (allowedOrigins.length === 0 || allowedOrigins.includes(origin)) {
+            callback(null, true);
+        } else {
+            console.log(`CORS blocked origin: ${origin}`);
+            console.log(`Allowed origins: ${allowedOrigins.join(', ')}`);
+            callback(new Error('Not allowed by CORS'));
+        }
+    },
+    credentials: true,
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization']
+};
+
+app.use(cors(corsOptions));
 app.use(express.json());
+
+// Log CORS configuration on startup
+const allowedOriginsList = [
+    process.env.CORS_ORIGIN,
+    'http://localhost:3000',
+    'http://localhost:3001'
+].filter(Boolean);
+console.log('CORS Configuration:');
+console.log('  CORS_ORIGIN:', process.env.CORS_ORIGIN || 'http://localhost:3000');
+console.log('  Allowed origins:', allowedOriginsList.join(', ') || 'None (allowing all)');
 
 // Root route for health check
 app.get('/', (req, res) => {

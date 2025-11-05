@@ -17,7 +17,7 @@ export default function DisclaimerBanner() {
         letterSpacing: '0.5px'
       }}
     >
-      ⚠️ DISCLAIMER: This is an educational project and is not affiliated with or endorsed by Southern Methodist University (SMU). This application is for demonstration purposes only.
+      ⚠️ DISCLAIMER: This is an educational project and is not affiliated with or endorsed by Singapore Management University (SMU). This application is for demonstration purposes only.
     </div>
   );
 }

@@ -38,20 +38,57 @@ export default function EvaluationSelection() {
   const fetchProfessors = async () => {
     try {
       setIsLoading(true);
-      const response = await fetch(`${API_URL}/api/professors`);
-      const data = await response.json();
+      setError('');
       
-      if (response.ok) {
-        setProfessors(data.professors || []);
-        if (data.professors && data.professors.length === 0) {
-          setError('No professors with courses found.');
+      console.log('Fetching professors from:', `${API_URL}/api/professors`);
+      
+      const response = await fetch(`${API_URL}/api/professors`);
+      
+      console.log('Response status:', response.status);
+      console.log('Response ok:', response.ok);
+      
+      if (!response.ok) {
+        // Try to get error message from response
+        let errorMessage = `HTTP ${response.status}: ${response.statusText}`;
+        try {
+          const contentType = response.headers.get('content-type');
+          if (contentType && contentType.includes('application/json')) {
+            const errorData = await response.json();
+            errorMessage = errorData.message || errorMessage;
+          } else {
+            const text = await response.text();
+            console.error('Non-JSON error response:', text.substring(0, 200));
+            errorMessage = `Server error (${response.status}). Check backend logs.`;
+          }
+        } catch (e) {
+          console.error('Error parsing error response:', e);
+          errorMessage = `Server error (${response.status}). Check backend logs.`;
         }
-      } else {
-        setError(data.message || 'Failed to load professors');
+        setError(`Failed to load professors: ${errorMessage}`);
+        return;
+      }
+      
+      const data = await response.json();
+      console.log('Professors data:', data);
+      
+      setProfessors(data.professors || []);
+      if (data.professors && data.professors.length === 0) {
+        setError('No professors with courses found.');
       }
     } catch (err) {
       console.error('Error fetching professors:', err);
-      setError('Failed to load professors. Please try again.');
+      console.error('Error details:', {
+        message: err.message,
+        stack: err.stack,
+        name: err.name
+      });
+      
+      // More specific error messages
+      if (err.message.includes('Failed to fetch') || err.message.includes('NetworkError')) {
+        setError(`Cannot connect to backend. Please verify REACT_APP_API_URL is set to: ${API_URL}`);
+      } else {
+        setError(`Failed to load professors: ${err.message}`);
+      }
     } finally {
       setIsLoading(false);
     }

@@ -39,6 +39,19 @@ app.use(cors({
 }));
 app.use(express.json());
 
+// Root route for health check
+app.get('/', (req, res) => {
+    res.json({ 
+        message: 'SMU Peer Evaluation API Server',
+        status: 'running',
+        endpoints: {
+            professors: '/api/professors',
+            login: '/api/login',
+            courses: '/api/courses'
+        }
+    });
+});
+
 // Configure multer for CSV file uploads
 const upload = multer({ 
     dest: 'uploads/',

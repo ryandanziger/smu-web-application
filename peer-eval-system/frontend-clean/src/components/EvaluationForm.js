@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
+import API_URL from '../config';
 import { Form, Spinner } from 'react-bootstrap';
 import { useAuth } from '../contexts/AuthContext';
 import { useNavigate } from 'react-router-dom'; 
@@ -211,7 +212,7 @@ export default function EvaluationForm() {
   useEffect(() => {
     const fetchTeammates = async () => {
       try {
-        const response = await fetch('http://localhost:3001/api/teammates');
+        const response = await fetch(`${API_URL}/api/teammates`);
         if (!response.ok) {
           throw new Error(`HTTP error! status: ${response.status}`);
         }
@@ -283,7 +284,7 @@ export default function EvaluationForm() {
     };
 
     try {
-        const response = await fetch('http://localhost:3001/api/submit-evaluation', { 
+        const response = await fetch(`${API_URL}/api/submit-evaluation`, { 
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',

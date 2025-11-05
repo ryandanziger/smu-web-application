@@ -35,7 +35,7 @@ const pool = new Pool({
 
 // Middleware
 app.use(cors({
-    origin: 'http://localhost:3000', // Allow requests from your React frontend
+    origin: process.env.CORS_ORIGIN || 'http://localhost:3000', // Allow requests from your React frontend
 }));
 app.use(express.json());
 
@@ -617,6 +617,867 @@ app.post('/api/submit-evaluation', async (req, res) => {
         res.status(500).json({ message: 'Failed to submit evaluation to database.' });
     } finally {
         client.release(); // Ensure client is released
+    }
+});
+
+// ---------------------------------------------
+// --- API Endpoint: Create Course (POST) ---
+// ---------------------------------------------
+app.post('/api/courses', async (req, res) => {
+    const { courseName, semester, classTime, professorId, userEmail, userName } = req.body;
+    
+    console.log(`[CREATE COURSE] Request received:`, {
+        courseName,
+        semester,
+        classTime,
+        professorId,
+        userEmail,
+        userName
+    });
+    
+    if (!courseName || !semester) {
+        return res.status(400).json({ message: 'Course name and semester are required' });
+    }
+    
+    let client;
+    
+    try {
+        client = await pool.connect();
+        
+        await client.query('BEGIN');
+        
+        // Get or create professor record
+        let professorRecord;
+        
+        if (professorId) {
+            // Try to find professor by ID first
+            const profResult = await client.query(
+                'SELECT professorid FROM public.professor WHERE professorid = $1',
+                [professorId]
+            );
+            
+            if (profResult.rows.length > 0) {
+                professorRecord = profResult.rows[0];
+            }
+        }
+        
+        // If no professor found by ID, try to find/create by email or username
+        if (!professorRecord && (userEmail || userName)) {
+            // Try to find by email OR username (check both to avoid duplicates)
+            let profResult = null;
+            
+            if (userEmail) {
+                profResult = await client.query(
+                    'SELECT professorid, email, professorname FROM public.professor WHERE email = $1',
+                    [userEmail]
+                );
+            }
+            
+            // If not found by email, try by username
+            if (!profResult || profResult.rows.length === 0) {
+                if (userName) {
+                    profResult = await client.query(
+                        'SELECT professorid, email, professorname FROM public.professor WHERE professorname = $1',
+                        [userName]
+                    );
+                }
+            }
+            
+            if (profResult && profResult.rows.length > 0) {
+                professorRecord = profResult.rows[0];
+                // Update professor record to ensure both email and name are set
+                const needsUpdate = (userEmail && profResult.rows[0].email !== userEmail) || 
+                                   (userName && profResult.rows[0].professorname !== userName);
+                
+                if (needsUpdate) {
+                    await client.query(
+                        'UPDATE public.professor SET email = COALESCE($1, email), professorname = COALESCE($2, professorname) WHERE professorid = $3',
+                        [userEmail || null, userName || null, professorRecord.professorid]
+                    );
+                }
+            } else {
+                // Create new professor record with both email and username
+                const createProf = await client.query(
+                    'INSERT INTO public.professor (professorname, email) VALUES ($1, $2) RETURNING professorid',
+                    [userName || 'Professor', userEmail || null]
+                );
+                professorRecord = createProf.rows[0];
+                console.log(`Created professor record with ID: ${professorRecord.professorid}, email: ${userEmail}, name: ${userName}`);
+                
+                // Verify the professor was created
+                const verifyProf = await client.query(
+                    'SELECT professorid, email, professorname FROM public.professor WHERE professorid = $1',
+                    [professorRecord.professorid]
+                );
+                console.log('Verified professor record:', verifyProf.rows[0]);
+            }
+        }
+        
+        if (!professorRecord) {
+            await client.query('ROLLBACK');
+            return res.status(400).json({ message: 'Could not identify professor. Please provide email or username.' });
+        }
+        
+        console.log(`[CREATE COURSE] Creating course with professorid: ${professorRecord.professorid}`);
+        console.log(`[CREATE COURSE] Professor record:`, {
+            professorid: professorRecord.professorid,
+            email: userEmail,
+            username: userName
+        });
+        
+        const insertQuery = `
+            INSERT INTO public.course (professorid, course_name, semester, class_time)
+            VALUES ($1, $2, $3, $4)
+            RETURNING courseid, professorid, course_name, semester, class_time;
+        `;
+        
+        const result = await client.query(insertQuery, [
+            professorRecord.professorid,
+            courseName,
+            semester,
+            classTime || null
+        ]);
+        
+        await client.query('COMMIT');
+        
+        const newCourse = result.rows[0];
+        console.log(`[CREATE COURSE] Course created successfully:`, newCourse);
+        console.log(`[CREATE COURSE] Course linked to professor ID: ${newCourse.professorid}`);
+        
+        res.status(201).json({
+            message: 'Course created successfully',
+            course: {
+                courseid: newCourse.courseid,
+                professorid: newCourse.professorid,
+                course_name: newCourse.course_name,
+                semester: newCourse.semester,
+                class_time: newCourse.class_time
+            }
+        });
+        
+    } catch (err) {
+        await client.query('ROLLBACK');
+        console.error('Create course error:', err.stack);
+        res.status(500).json({ message: 'Failed to create course' });
+    } finally {
+        if (client) {
+            client.release();
+        }
+    }
+});
+
+// ---------------------------------------------
+// --- API Endpoint: Get All Courses (for debugging) (GET) ---
+// ---------------------------------------------
+app.get('/api/courses', async (req, res) => {
+    let client;
+    
+    try {
+        client = await pool.connect();
+        
+        const query = `
+            SELECT c.courseid, c.course_name, c.semester, c.class_time, c.professorid,
+                   p.email as professor_email, p.professorname,
+                   COUNT(DISTINCT sc.studentid) as student_count
+            FROM public.course c
+            LEFT JOIN public.professor p ON c.professorid = p.professorid
+            LEFT JOIN public.student_course sc ON c.courseid = sc.courseid
+            GROUP BY c.courseid, c.course_name, c.semester, c.class_time, c.professorid, p.email, p.professorname
+            ORDER BY c.semester DESC, c.course_name;
+        `;
+        
+        const result = await client.query(query);
+        
+        res.status(200).json({ courses: result.rows });
+        
+    } catch (err) {
+        console.error('Get all courses error:', err.stack);
+        res.status(500).json({ message: 'Failed to fetch courses' });
+    } finally {
+        if (client) {
+            client.release();
+        }
+    }
+});
+
+// ---------------------------------------------
+// --- API Endpoint: Get Professor Courses (GET) ---
+// ---------------------------------------------
+app.get('/api/professors/:professorId/courses', async (req, res) => {
+    const { professorId } = req.params;
+    
+    let client;
+    
+    try {
+        client = await pool.connect();
+        
+        // First, try to find professor by email or name if professorId is not numeric
+        let profId = professorId;
+        
+        // If professorId is not a number, try to find by email or name
+        if (isNaN(professorId)) {
+            console.log(`Looking up professor with identifier: ${professorId}`);
+            
+            // Try to find by email first, then by username
+            let profResult = await client.query(
+                'SELECT professorid, email, professorname FROM public.professor WHERE email = $1',
+                [professorId]
+            );
+            
+            console.log(`Email lookup result: ${profResult.rows.length} rows`);
+            if (profResult.rows.length > 0) {
+                console.log(`Found professor:`, profResult.rows[0]);
+            }
+            
+            if (profResult.rows.length === 0) {
+                // Try by username/name
+                profResult = await client.query(
+                    'SELECT professorid, email, professorname FROM public.professor WHERE professorname = $1',
+                    [professorId]
+                );
+                console.log(`Username lookup result: ${profResult.rows.length} rows`);
+                if (profResult.rows.length > 0) {
+                    console.log(`Found professor:`, profResult.rows[0]);
+                }
+            }
+            
+            if (profResult.rows.length > 0) {
+                profId = profResult.rows[0].professorid;
+                console.log(`Using professor ID: ${profId} for course lookup`);
+            } else {
+                // Don't auto-create professor here - let course creation handle it
+                // Return empty array if no professor found
+                console.log(`No professor found for identifier: ${professorId}`);
+                console.log(`Listing all professors in database:`);
+                const allProfs = await client.query('SELECT professorid, email, professorname FROM public.professor');
+                console.log('All professors:', JSON.stringify(allProfs.rows, null, 2));
+                return res.status(200).json({ courses: [] });
+            }
+        }
+        
+        // Query courses for this professor - using the exact schema structure
+        // Reference: course.professorid -> professor.professorid
+        const query = `
+            SELECT 
+                c.courseid, 
+                c.course_name, 
+                c.semester, 
+                c.class_time,
+                COUNT(DISTINCT sc.studentid) as student_count
+            FROM public.course c
+            LEFT JOIN public.student_course sc ON c.courseid = sc.courseid
+            WHERE c.professorid = $1
+            GROUP BY c.courseid, c.course_name, c.semester, c.class_time
+            ORDER BY c.semester DESC, c.course_name;
+        `;
+        
+        console.log(`Querying courses for professorid: ${profId}`);
+        
+        // First, verify professor exists
+        const profCheck = await client.query('SELECT professorid, email, professorname FROM public.professor WHERE professorid = $1', [profId]);
+        console.log(`Professor check for ID ${profId}:`, profCheck.rows.length > 0 ? profCheck.rows[0] : 'NOT FOUND');
+        
+        // Check all courses in database
+        const allCourses = await client.query('SELECT courseid, course_name, professorid FROM public.course');
+        console.log(`Total courses in database: ${allCourses.rows.length}`);
+        if (allCourses.rows.length > 0) {
+            console.log('All courses:', JSON.stringify(allCourses.rows, null, 2));
+        }
+        
+        const result = await client.query(query, [profId]);
+        
+        console.log(`Found ${result.rows.length} courses for professor ${profId}`);
+        if (result.rows.length > 0) {
+            console.log('Courses:', JSON.stringify(result.rows, null, 2));
+        } else {
+            // Debug: check if there are any courses at all for this professor
+            const debugQuery = await client.query(
+                'SELECT courseid, course_name, professorid FROM public.course WHERE professorid = $1',
+                [profId]
+            );
+            console.log(`Debug: Found ${debugQuery.rows.length} courses (without join) for professor ${profId}`);
+            if (debugQuery.rows.length > 0) {
+                console.log('Raw courses:', JSON.stringify(debugQuery.rows, null, 2));
+            }
+        }
+        
+        res.status(200).json({ courses: result.rows });
+        
+    } catch (err) {
+        console.error('Get professor courses error:', err.stack);
+        res.status(500).json({ message: 'Failed to fetch courses' });
+    } finally {
+        if (client) {
+            client.release();
+        }
+    }
+});
+
+// ---------------------------------------------
+// --- API Endpoint: Delete Course (DELETE) ---
+// ---------------------------------------------
+app.delete('/api/courses/:courseId', async (req, res) => {
+    const { courseId } = req.params;
+    
+    console.log(`[DELETE COURSE] Attempting to delete course ID: ${courseId}`);
+    
+    if (!courseId || isNaN(courseId)) {
+        console.log(`[DELETE COURSE] Invalid course ID: ${courseId}`);
+        return res.status(400).json({ message: 'Valid course ID is required' });
+    }
+    
+    let client;
+    
+    try {
+        client = await pool.connect();
+        await client.query('BEGIN');
+        
+        console.log(`[DELETE COURSE] Transaction started for course ${courseId}`);
+        
+        // Verify course exists
+        const courseCheck = await client.query(
+            'SELECT courseid, professorid, course_name FROM public.course WHERE courseid = $1',
+            [courseId]
+        );
+        
+        if (courseCheck.rows.length === 0) {
+            await client.query('ROLLBACK');
+            console.log(`[DELETE COURSE] Course ${courseId} not found`);
+            return res.status(404).json({ message: 'Course not found' });
+        }
+        
+        const course = courseCheck.rows[0];
+        console.log(`[DELETE COURSE] Found course: ${course.course_name} (ID: ${course.courseid})`);
+        
+        // Delete related records in order (respecting foreign key constraints)
+        // 1. Get group IDs first before deleting student_group entries
+        console.log(`[DELETE COURSE] Step 1: Getting group IDs for course ${courseId}`);
+        const groupIds = await client.query(
+            'SELECT DISTINCT groupid FROM public.student_group WHERE courseid = $1',
+            [courseId]
+        );
+        console.log(`[DELETE COURSE] Found ${groupIds.rows.length} groups associated with course`);
+        
+        // 2. Delete student_group entries for this course
+        console.log(`[DELETE COURSE] Step 2: Deleting student_group entries for course ${courseId}`);
+        const deleteStudentGroupResult = await client.query(
+            'DELETE FROM public.student_group WHERE courseid = $1',
+            [courseId]
+        );
+        console.log(`[DELETE COURSE] Deleted ${deleteStudentGroupResult.rowCount} student_group entries`);
+        
+        // 3. Delete groups that are only associated with this course
+        console.log(`[DELETE COURSE] Step 3: Cleaning up orphaned groups`);
+        for (const row of groupIds.rows) {
+            const groupId = row.groupid;
+            if (!groupId) {
+                console.log(`[DELETE COURSE] Skipping null groupId`);
+                continue;
+            }
+            
+            // Check if group is used in other courses (now that we've deleted this course's entries)
+            const otherCourses = await client.query(
+                'SELECT COUNT(*) FROM public.student_group WHERE groupid = $1',
+                [groupId]
+            );
+            
+            const count = parseInt(otherCourses.rows[0].count);
+            console.log(`[DELETE COURSE] Group ${groupId} is used in ${count} other courses`);
+            
+            if (count === 0) {
+                // Group is not used in any other courses, safe to delete
+                console.log(`[DELETE COURSE] Deleting orphaned group ${groupId}`);
+                await client.query(
+                    'DELETE FROM public."group" WHERE groupid = $1',
+                    [groupId]
+                );
+                console.log(`[DELETE COURSE] Deleted group ${groupId}`);
+            }
+        }
+        
+        // 4. Delete student_course entries for this course
+        console.log(`[DELETE COURSE] Step 4: Deleting student_course entries for course ${courseId}`);
+        const deleteStudentCourseResult = await client.query(
+            'DELETE FROM public.student_course WHERE courseid = $1',
+            [courseId]
+        );
+        console.log(`[DELETE COURSE] Deleted ${deleteStudentCourseResult.rowCount} student_course entries`);
+        
+        // 5. Finally, delete the course itself
+        console.log(`[DELETE COURSE] Step 5: Deleting course ${courseId}`);
+        const deleteCourseResult = await client.query(
+            'DELETE FROM public.course WHERE courseid = $1',
+            [courseId]
+        );
+        console.log(`[DELETE COURSE] Course deletion result: ${deleteCourseResult.rowCount} rows affected`);
+        
+        await client.query('COMMIT');
+        
+        console.log(`[DELETE COURSE] SUCCESS: Course ${courseId} (${course.course_name}) deleted successfully`);
+        
+        res.status(200).json({ 
+            message: 'Course deleted successfully',
+            courseId: parseInt(courseId)
+        });
+        
+    } catch (err) {
+        if (client) {
+            await client.query('ROLLBACK').catch(rollbackErr => {
+                console.error('[DELETE COURSE] Rollback error:', rollbackErr);
+            });
+        }
+        console.error('[DELETE COURSE] ERROR:', err.message);
+        console.error('[DELETE COURSE] ERROR Stack:', err.stack);
+        console.error('[DELETE COURSE] ERROR Code:', err.code);
+        console.error('[DELETE COURSE] ERROR Detail:', err.detail);
+        
+        res.status(500).json({ 
+            message: 'Failed to delete course',
+            error: err.message,
+            detail: err.detail || null
+        });
+    } finally {
+        if (client) {
+            client.release();
+            console.log(`[DELETE COURSE] Database connection released`);
+        }
+    }
+});
+
+// ---------------------------------------------
+// --- API Endpoint: Get Course (GET) ---
+// ---------------------------------------------
+app.get('/api/courses/:courseId', async (req, res) => {
+    const { courseId } = req.params;
+    
+    let client;
+    
+    try {
+        client = await pool.connect();
+        
+        const query = `
+            SELECT courseid, professorid, course_name, semester, class_time
+            FROM public.course
+            WHERE courseid = $1;
+        `;
+        
+        const result = await client.query(query, [courseId]);
+        
+        if (result.rows.length === 0) {
+            return res.status(404).json({ message: 'Course not found' });
+        }
+        
+        res.status(200).json({ course: result.rows[0] });
+        
+    } catch (err) {
+        console.error('Get course error:', err.stack);
+        res.status(500).json({ message: 'Failed to fetch course' });
+    } finally {
+        if (client) {
+            client.release();
+        }
+    }
+});
+
+// ---------------------------------------------
+// --- API Endpoint: Get Course Roster (GET) ---
+// ---------------------------------------------
+app.get('/api/courses/:courseId/roster', async (req, res) => {
+    const { courseId } = req.params;
+    
+    let client;
+    
+    try {
+        client = await pool.connect();
+        
+        const query = `
+            SELECT s.studentid, s.studentname, sg.groupid
+            FROM public.student_course sc
+            JOIN public.student s ON sc.studentid = s.studentid
+            LEFT JOIN public.student_group sg ON sc.studentid = sg.studentid AND sg.courseid = $1
+            WHERE sc.courseid = $1
+            ORDER BY s.studentname;
+        `;
+        
+        const result = await client.query(query, [courseId]);
+        
+        res.status(200).json({ roster: result.rows });
+        
+    } catch (err) {
+        console.error('Get roster error:', err.stack);
+        res.status(500).json({ message: 'Failed to fetch roster' });
+    } finally {
+        if (client) {
+            client.release();
+        }
+    }
+});
+
+// ---------------------------------------------
+// --- API Endpoint: Upload Course Roster CSV (POST) ---
+// ---------------------------------------------
+app.post('/api/courses/:courseId/upload-roster', upload.single('csvFile'), async (req, res) => {
+    const { courseId } = req.params;
+    
+    if (!req.file) {
+        return res.status(400).json({ message: 'No CSV file uploaded' });
+    }
+
+    let client;
+    const results = [];
+    const errors = [];
+
+    try {
+        client = await pool.connect();
+        
+        // Verify course exists
+        const courseCheck = await client.query('SELECT courseid FROM public.course WHERE courseid = $1', [courseId]);
+        if (courseCheck.rows.length === 0) {
+            return res.status(404).json({ message: 'Course not found' });
+        }
+        
+        // Parse CSV file
+        fs.createReadStream(req.file.path)
+            .pipe(csv())
+            .on('data', (data) => {
+                const student = {
+                    name: data.studentname || data.name || data.student_name || data['Student Name']
+                };
+                
+                if (student.name && student.name.trim()) {
+                    results.push(student);
+                } else {
+                    errors.push(`Invalid row: ${JSON.stringify(data)}`);
+                }
+            })
+            .on('end', async () => {
+                try {
+                    let successCount = 0;
+                    let duplicateCount = 0;
+
+                    // Insert students into database and link to course
+                    for (const student of results) {
+                        try {
+                            await client.query('BEGIN');
+                            
+                            // Check if student already exists
+                            let studentResult = await client.query(
+                                'SELECT studentid FROM public.student WHERE studentname = $1',
+                                [student.name]
+                            );
+
+                            let studentId;
+                            if (studentResult.rows.length === 0) {
+                                // Create new student
+                                const insertStudent = await client.query(
+                                    'INSERT INTO public.student (studentname) VALUES ($1) RETURNING studentid',
+                                    [student.name]
+                                );
+                                studentId = insertStudent.rows[0].studentid;
+                            } else {
+                                studentId = studentResult.rows[0].studentid;
+                            }
+
+                            // Check if student is already in this course
+                            const courseCheck = await client.query(
+                                'SELECT studentid FROM public.student_course WHERE courseid = $1 AND studentid = $2',
+                                [courseId, studentId]
+                            );
+
+                            if (courseCheck.rows.length > 0) {
+                                duplicateCount++;
+                                await client.query('ROLLBACK');
+                                continue;
+                            }
+
+                            // Link student to course
+                            await client.query(
+                                'INSERT INTO public.student_course (courseid, studentid) VALUES ($1, $2)',
+                                [courseId, studentId]
+                            );
+                            
+                            await client.query('COMMIT');
+                            successCount++;
+                        } catch (err) {
+                            await client.query('ROLLBACK');
+                            errors.push(`Error processing ${student.name}: ${err.message}`);
+                        }
+                    }
+
+                    // Clean up uploaded file
+                    fs.unlinkSync(req.file.path);
+
+                    res.status(200).json({
+                        message: 'CSV processing completed',
+                        successCount,
+                        duplicateCount,
+                        errorCount: errors.length,
+                        errors: errors.slice(0, 10)
+                    });
+
+                } catch (err) {
+                    console.error('CSV processing error:', err);
+                    res.status(500).json({ message: 'Error processing CSV file' });
+                } finally {
+                    if (client) client.release();
+                }
+            })
+            .on('error', (err) => {
+                console.error('CSV parsing error:', err);
+                res.status(400).json({ message: 'Error parsing CSV file' });
+                if (client) client.release();
+            });
+
+    } catch (err) {
+        console.error('Upload error:', err);
+        res.status(500).json({ message: 'Error processing upload' });
+        if (client) client.release();
+    }
+});
+
+// ---------------------------------------------
+// --- API Endpoint: Create Group (POST) ---
+// ---------------------------------------------
+app.post('/api/courses/:courseId/groups', async (req, res) => {
+    const { courseId } = req.params;
+    const { groupName } = req.body;
+    
+    if (!groupName || !groupName.trim()) {
+        return res.status(400).json({ message: 'Group name is required' });
+    }
+    
+    let client;
+    
+    try {
+        client = await pool.connect();
+        
+        // Verify course exists
+        const courseCheck = await client.query('SELECT courseid FROM public.course WHERE courseid = $1', [courseId]);
+        if (courseCheck.rows.length === 0) {
+            return res.status(404).json({ message: 'Course not found' });
+        }
+        
+        const insertQuery = `
+            INSERT INTO public."group" (group_name)
+            VALUES ($1)
+            RETURNING groupid, group_name;
+        `;
+        
+        const result = await client.query(insertQuery, [groupName.trim()]);
+        const newGroup = result.rows[0];
+        
+        res.status(201).json({
+            message: 'Group created successfully',
+            group: newGroup
+        });
+        
+    } catch (err) {
+        console.error('Create group error:', err.stack);
+        res.status(500).json({ message: 'Failed to create group' });
+    } finally {
+        if (client) {
+            client.release();
+        }
+    }
+});
+
+// ---------------------------------------------
+// --- API Endpoint: Get Course Groups (GET) ---
+// ---------------------------------------------
+app.get('/api/courses/:courseId/groups', async (req, res) => {
+    const { courseId } = req.params;
+    
+    let client;
+    
+    try {
+        client = await pool.connect();
+        
+        // Get all groups and count students in each for this course
+        const query = `
+            SELECT g.groupid, g.group_name,
+                   COUNT(sg.studentid) as student_count
+            FROM public."group" g
+            LEFT JOIN public.student_group sg ON g.groupid = sg.groupid AND sg.courseid = $1
+            GROUP BY g.groupid, g.group_name
+            ORDER BY g.group_name;
+        `;
+        
+        const result = await client.query(query, [courseId]);
+        
+        res.status(200).json({ groups: result.rows });
+        
+    } catch (err) {
+        console.error('Get groups error:', err.stack);
+        res.status(500).json({ message: 'Failed to fetch groups' });
+    } finally {
+        if (client) {
+            client.release();
+        }
+    }
+});
+
+// ---------------------------------------------
+// --- API Endpoint: Add Students to Group (POST) ---
+// ---------------------------------------------
+app.post('/api/courses/:courseId/groups/:groupId/students', async (req, res) => {
+    const { courseId, groupId } = req.params;
+    const { studentIds } = req.body;
+    
+    if (!Array.isArray(studentIds) || studentIds.length === 0) {
+        return res.status(400).json({ message: 'Student IDs array is required' });
+    }
+    
+    let client;
+    
+    try {
+        client = await pool.connect();
+        
+        await client.query('BEGIN');
+        
+        // Verify course and group exist
+        const courseCheck = await client.query('SELECT courseid FROM public.course WHERE courseid = $1', [courseId]);
+        if (courseCheck.rows.length === 0) {
+            await client.query('ROLLBACK');
+            return res.status(404).json({ message: 'Course not found' });
+        }
+        
+        const groupCheck = await client.query('SELECT groupid FROM public."group" WHERE groupid = $1', [groupId]);
+        if (groupCheck.rows.length === 0) {
+            await client.query('ROLLBACK');
+            return res.status(404).json({ message: 'Group not found' });
+        }
+        
+        let successCount = 0;
+        let duplicateCount = 0;
+        
+        // Add each student to the group
+        for (const studentId of studentIds) {
+            try {
+                // Check if student is already in this group for this course
+                const existing = await client.query(
+                    'SELECT studentid FROM public.student_group WHERE courseid = $1 AND groupid = $2 AND studentid = $3',
+                    [courseId, groupId, studentId]
+                );
+                
+                if (existing.rows.length > 0) {
+                    duplicateCount++;
+                    continue;
+                }
+                
+                // Verify student is in the course
+                const inCourse = await client.query(
+                    'SELECT studentid FROM public.student_course WHERE courseid = $1 AND studentid = $2',
+                    [courseId, studentId]
+                );
+                
+                if (inCourse.rows.length === 0) {
+                    continue; // Skip if student not in course
+                }
+                
+                // Add student to group
+                await client.query(
+                    'INSERT INTO public.student_group (groupid, studentid, courseid) VALUES ($1, $2, $3)',
+                    [groupId, studentId, courseId]
+                );
+                
+                successCount++;
+            } catch (err) {
+                console.error(`Error adding student ${studentId}:`, err);
+            }
+        }
+        
+        await client.query('COMMIT');
+        
+        res.status(200).json({
+            message: 'Students added to group',
+            successCount,
+            duplicateCount
+        });
+        
+    } catch (err) {
+        await client.query('ROLLBACK');
+        console.error('Add students to group error:', err.stack);
+        res.status(500).json({ message: 'Failed to add students to group' });
+    } finally {
+        if (client) {
+            client.release();
+        }
+    }
+});
+
+// ---------------------------------------------
+// --- API Endpoint: Get Students in Group (GET) ---
+// ---------------------------------------------
+app.get('/api/courses/:courseId/groups/:groupId/students', async (req, res) => {
+    const { courseId, groupId } = req.params;
+    
+    let client;
+    
+    try {
+        client = await pool.connect();
+        
+        const query = `
+            SELECT s.studentid, s.studentname, s.email
+            FROM public.student_group sg
+            JOIN public.student s ON sg.studentid = s.studentid
+            WHERE sg.courseid = $1 AND sg.groupid = $2
+            ORDER BY s.studentname;
+        `;
+        
+        const result = await client.query(query, [courseId, groupId]);
+        
+        res.status(200).json({
+            students: result.rows
+        });
+        
+    } catch (err) {
+        console.error('Get group students error:', err.stack);
+        res.status(500).json({ message: 'Failed to fetch group students' });
+    } finally {
+        if (client) {
+            client.release();
+        }
+    }
+});
+
+// ---------------------------------------------
+// --- API Endpoint: Remove Student from Group (DELETE) ---
+// ---------------------------------------------
+app.delete('/api/courses/:courseId/groups/:groupId/students/:studentId', async (req, res) => {
+    const { courseId, groupId, studentId } = req.params;
+    
+    let client;
+    
+    try {
+        client = await pool.connect();
+        
+        // Verify the student is in this group for this course
+        const checkQuery = await client.query(
+            'SELECT studentid FROM public.student_group WHERE courseid = $1 AND groupid = $2 AND studentid = $3',
+            [courseId, groupId, studentId]
+        );
+        
+        if (checkQuery.rows.length === 0) {
+            return res.status(404).json({ message: 'Student not found in this group' });
+        }
+        
+        // Remove student from group
+        await client.query(
+            'DELETE FROM public.student_group WHERE courseid = $1 AND groupid = $2 AND studentid = $3',
+            [courseId, groupId, studentId]
+        );
+        
+        res.status(200).json({
+            message: 'Student removed from group successfully'
+        });
+        
+    } catch (err) {
+        console.error('Remove student from group error:', err.stack);
+        res.status(500).json({ message: 'Failed to remove student from group' });
+    } finally {
+        if (client) {
+            client.release();
+        }
     }
 });
 

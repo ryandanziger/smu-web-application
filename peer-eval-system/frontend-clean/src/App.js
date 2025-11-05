@@ -5,8 +5,10 @@ import Signup from './components/Signup.js';
 import ForgotPassword from './components/ForgotPassword.js';
 import ResetPassword from './components/ResetPassword.js';
 import EvaluationForm from './components/EvaluationForm.js';
-import Dashboard from './components/Dashboard.js';
-import StudentImport from './components/StudentImport.js';
+import ProfessorDashboard from './components/ProfessorDashboard.js';
+import CourseCreation from './components/CourseCreation.js';
+import CourseRoster from './components/CourseRoster.js';
+import GroupManagement from './components/GroupManagement.js';
 import { AuthProvider, useAuth } from './contexts/AuthContext.js';
 import { BrowserRouter as Router, Routes, Route, Link, Navigate } from 'react-router-dom';
 import { Container, Navbar, Nav, Row, Col } from 'react-bootstrap';
@@ -60,8 +62,8 @@ function AppContent() {
               )}
               {user?.role === 'professor' && (
                 <>
-                  <Nav.Link as={Link} to="/student-import" className="text-light">Student Import</Nav.Link>
-                  <Nav.Link as={Link} to="/dashboard" className="text-light">Analytics</Nav.Link>
+                  <Nav.Link as={Link} to="/dashboard" className="text-light">Classes</Nav.Link>
+                  <Nav.Link as={Link} to="/create-course" className="text-light">Create Course</Nav.Link>
                 </>
               )}
               <Nav.Link onClick={logout} className="text-light" style={{ cursor: 'pointer' }}>
@@ -90,14 +92,24 @@ function AppContent() {
             </Container>
           </ProtectedRoute>
         } />
-        <Route path="/student-import" element={
-          <ProtectedRoute allowedRoles={['professor']}>
-            <StudentImport />
-          </ProtectedRoute>
-        } />
         <Route path="/dashboard" element={
           <ProtectedRoute allowedRoles={['professor']}>
-            <Dashboard />
+            <ProfessorDashboard />
+          </ProtectedRoute>
+        } />
+        <Route path="/create-course" element={
+          <ProtectedRoute allowedRoles={['professor']}>
+            <CourseCreation />
+          </ProtectedRoute>
+        } />
+        <Route path="/course-roster/:courseId" element={
+          <ProtectedRoute allowedRoles={['professor']}>
+            <CourseRoster />
+          </ProtectedRoute>
+        } />
+        <Route path="/manage-groups/:courseId" element={
+          <ProtectedRoute allowedRoles={['professor']}>
+            <GroupManagement />
           </ProtectedRoute>
         } />
       </Routes>

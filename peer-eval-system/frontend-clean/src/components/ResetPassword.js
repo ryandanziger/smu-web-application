@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import API_URL from '../config';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 
 // --- Color Palette (matching Login component) ---
@@ -38,7 +39,7 @@ export default function ResetPassword() {
 
     const verifyToken = async () => {
       try {
-        const response = await fetch(`http://localhost:3001/api/verify-reset-token/${token}`);
+        const response = await fetch(`${API_URL}/api/verify-reset-token/${token}`);
         const data = await response.json();
 
         if (response.ok) {
@@ -76,7 +77,7 @@ export default function ResetPassword() {
     }
 
     try {
-      const response = await fetch('http://localhost:3001/api/reset-password', {
+      const response = await fetch(`${API_URL}/api/reset-password`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

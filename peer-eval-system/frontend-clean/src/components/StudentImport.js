@@ -1,4 +1,5 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
+import API_URL from '../config';
 import { useNavigate } from 'react-router-dom';
 
 // --- Color Palette (matching existing components) ---
@@ -36,16 +37,11 @@ export default function StudentImport() {
   const [totalPages, setTotalPages] = useState(1);
   const [isLoading, setIsLoading] = useState(true);
 
-  // Fetch students on component mount and when search/page changes
-  useEffect(() => {
-    fetchStudents();
-  }, [searchTerm, currentPage]);
-
-  const fetchStudents = async () => {
+  const fetchStudents = useCallback(async () => {
     try {
       setIsLoading(true);
       const response = await fetch(
-        `http://localhost:3001/api/students?page=${currentPage}&limit=20&search=${encodeURIComponent(searchTerm)}`
+        `${API_URL}/api/students?page=${currentPage}&limit=20&search=${encodeURIComponent(searchTerm)}`
       );
       const data = await response.json();
       
@@ -58,7 +54,12 @@ export default function StudentImport() {
     } finally {
       setIsLoading(false);
     }
-  };
+  }, [searchTerm, currentPage]);
+
+  // Fetch students on component mount and when search/page changes
+  useEffect(() => {
+    fetchStudents();
+  }, [fetchStudents]);
 
   const handleFileChange = (e) => {
     const file = e.target.files[0];
@@ -83,7 +84,7 @@ export default function StudentImport() {
     formData.append('csvFile', csvFile);
 
     try {
-      const response = await fetch('http://localhost:3001/api/upload-students', {
+      const response = await fetch(`${API_URL}/api/upload-students`, {
         method: 'POST',
         body: formData,
       });
@@ -454,13 +455,24 @@ export default function StudentImport() {
         </div>
       </div>
 
-      {/* Continue to Dashboard Button */}
-      <button
-        onClick={() => navigate('/dashboard')}
-        style={continueButtonStyle}
-      >
-        View Analytics Dashboard →
-      </button>
+      {/* Action Buttons */}
+      <div style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end', padding: '20px' }}>
+        <button
+          onClick={() => navigate('/create-course')}
+          style={{
+            ...buttonStyle,
+            backgroundColor: COLORS.NAVY_BUTTON,
+          }}
+        >
+          Create New Course
+        </button>
+        <button
+          onClick={() => navigate('/dashboard')}
+          style={continueButtonStyle}
+        >
+          View Analytics Dashboard →
+        </button>
+      </div>
     </div>
   );
 }

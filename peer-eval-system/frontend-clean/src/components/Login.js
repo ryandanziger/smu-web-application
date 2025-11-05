@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import API_URL from '../config';
 import { useAuth } from '../contexts/AuthContext';
 import { useNavigate } from 'react-router-dom';
 
@@ -31,7 +32,7 @@ export default function Login() {
     setError('');
 
     try {
-      const response = await fetch('http://localhost:3001/api/login', {
+      const response = await fetch(`${API_URL}/api/login`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -52,11 +53,11 @@ export default function Login() {
       await login(data.user.role, data.user.username, data.user);
       
       // Navigate based on role
-                if (data.user.role === 'student') {
-                    navigate('/evaluation');
-                } else {
-                    navigate('/student-import');
-                }
+      if (data.user.role === 'student') {
+        navigate('/evaluation');
+      } else {
+        navigate('/dashboard');
+      }
     } catch (err) {
       setError(err.message || 'Login failed. Please try again.');
     } finally {
@@ -130,10 +131,6 @@ export default function Login() {
     minHeight: '52px',
   };
 
-  const selectStyle = {
-    ...inputStyle,
-    cursor: 'pointer',
-  };
 
   const buttonStyle = {
     width: '100%',
@@ -285,42 +282,40 @@ export default function Login() {
           }}>
             Don't have an account?
           </p>
-          <a
-            href="#"
-            onClick={(e) => {
-              e.preventDefault();
-              navigate('/signup');
-            }}
+          <button
+            onClick={() => navigate('/signup')}
             style={{
+              background: 'none',
+              border: 'none',
               color: COLORS.WHITE,
               textDecoration: 'underline',
               cursor: 'pointer',
               fontSize: '20px',
               fontFamily: 'Joan, serif',
               fontWeight: 'normal',
+              padding: 0,
             }}
           >
             Create Account
-          </a>
+          </button>
           
           <div style={{ marginTop: '15px', paddingTop: '15px', borderTop: '1px solid rgba(255,255,255,0.2)' }}>
-            <a
-              href="#"
-              onClick={(e) => {
-                e.preventDefault();
-                navigate('/forgot-password');
-              }}
+            <button
+              onClick={() => navigate('/forgot-password')}
               style={{
+                background: 'none',
+                border: 'none',
                 color: COLORS.WHITE,
                 textDecoration: 'underline',
                 cursor: 'pointer',
                 fontSize: '18px',
                 fontFamily: 'Joan, serif',
                 fontWeight: 'normal',
+                padding: 0,
               }}
             >
               Forgot Password?
-            </a>
+            </button>
           </div>
         </div>
       </div>

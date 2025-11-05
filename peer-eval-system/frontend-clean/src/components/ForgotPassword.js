@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import API_URL from '../config';
 import { useNavigate } from 'react-router-dom';
 
 // --- Color Palette (matching Login component) ---
@@ -41,7 +42,7 @@ export default function ForgotPassword() {
     }
 
     try {
-      const response = await fetch('http://localhost:3001/api/forgot-password', {
+      const response = await fetch(`${API_URL}/api/forgot-password`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

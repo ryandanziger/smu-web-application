@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import API_URL from '../config';
 import { useAuth } from '../contexts/AuthContext';
 import { useNavigate } from 'react-router-dom';
 
@@ -51,7 +52,7 @@ export default function Signup() {
     }
 
     try {
-      const response = await fetch('http://localhost:3001/api/signup', {
+      const response = await fetch(`${API_URL}/api/signup`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -77,7 +78,7 @@ export default function Signup() {
       // Auto-login after successful signup
       setTimeout(async () => {
         try {
-          const loginResponse = await fetch('http://localhost:3001/api/login', {
+          const loginResponse = await fetch(`${API_URL}/api/login`, {
             method: 'POST',
             headers: {
               'Content-Type': 'application/json',

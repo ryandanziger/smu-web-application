@@ -10,6 +10,7 @@ import ProfessorDashboard from './components/ProfessorDashboard.js';
 import CourseCreation from './components/CourseCreation.js';
 import CourseRoster from './components/CourseRoster.js';
 import GroupManagement from './components/GroupManagement.js';
+import DisclaimerBanner from './components/DisclaimerBanner.js';
 import { AuthProvider, useAuth } from './contexts/AuthContext.js';
 import { BrowserRouter as Router, Routes, Route, Link, Navigate } from 'react-router-dom';
 import { Container, Navbar, Nav, Row, Col } from 'react-bootstrap';
@@ -49,6 +50,9 @@ function AppContent() {
 
   return (
     <>
+      {/* Educational Project Disclaimer Banner */}
+      <DisclaimerBanner />
+      
       {/* SMU Navbar */}
       <Navbar expand="lg" style={{ backgroundColor: '#00205B' }} variant="dark">
         <Container>

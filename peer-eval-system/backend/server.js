@@ -517,32 +517,229 @@ app.get('/api/students', async (req, res) => {
 });
 
 // ---------------------------------------------
+// --- API Endpoint: Get All Professors (GET) ---
+// ---------------------------------------------
+app.get('/api/professors', async (req, res) => {
+    let client;
+    
+    try {
+        client = await pool.connect();
+        
+        // Get all users with role 'professor' who have at least one course
+        // First, get all professor users
+        const usersQuery = `
+            SELECT DISTINCT u.id, u.username, u.email, u.first_name, u.last_name
+            FROM public.users u
+            WHERE u.role = 'professor'
+            ORDER BY u.username
+        `;
+        
+        const usersResult = await client.query(usersQuery);
+        
+        // For each user, check if they have courses by finding their professor record
+        const professors = [];
+        
+        for (const user of usersResult.rows) {
+            // Try to find professor record by email, username, or name
+            let profResult = await client.query(
+                'SELECT professorid, email, professorname FROM public.professor WHERE email = $1 OR professorname = $2 OR professorname = $3',
+                [user.email, user.username, `${user.first_name || ''} ${user.last_name || ''}`.trim()]
+            );
+            
+            if (profResult.rows.length > 0) {
+                const profId = profResult.rows[0].professorid;
+                
+                // Check if this professor has any courses
+                const courseCheck = await client.query(
+                    'SELECT COUNT(*) as course_count FROM public.course WHERE professorid = $1',
+                    [profId]
+                );
+                
+                if (parseInt(courseCheck.rows[0].course_count) > 0) {
+                    professors.push({
+                        username: user.username,
+                        email: user.email || profResult.rows[0].email,
+                        first_name: user.first_name,
+                        last_name: user.last_name,
+                        professorid: profId,
+                        professorname: profResult.rows[0].professorname || user.username
+                    });
+                }
+            }
+        }
+        
+        res.status(200).json({
+            professors: professors
+        });
+        
+    } catch (err) {
+        console.error('Get professors error:', err.stack);
+        res.status(500).json({ message: 'Failed to fetch professors' });
+    } finally {
+        if (client) {
+            client.release();
+        }
+    }
+});
+
+// ---------------------------------------------
+// --- API Endpoint: Get Student Courses (GET) ---
+// ---------------------------------------------
+app.get('/api/students/:studentEmail/courses', async (req, res) => {
+    const { studentEmail } = req.params;
+    
+    let client;
+    
+    try {
+        client = await pool.connect();
+        
+        // First, try to find student by email in student table
+        let studentResult = await client.query(
+            'SELECT studentid, studentname, email FROM public.student WHERE email = $1 LIMIT 1',
+            [studentEmail]
+        );
+        
+        // If not found, try to find by matching user email and student name
+        // This handles cases where student was created via CSV without email
+        if (studentResult.rows.length === 0) {
+            // Get user info
+            const userResult = await client.query(
+                'SELECT id, username, email, first_name, last_name FROM public.users WHERE email = $1 LIMIT 1',
+                [studentEmail]
+            );
+            
+            if (userResult.rows.length > 0) {
+                const user = userResult.rows[0];
+                // Try to find student by name match (first + last or username)
+                const nameMatch = `${user.first_name || ''} ${user.last_name || ''}`.trim() || user.username;
+                studentResult = await client.query(
+                    'SELECT studentid, studentname, email FROM public.student WHERE studentname ILIKE $1 LIMIT 1',
+                    [nameMatch]
+                );
+                
+                // If found, update student email to match user email
+                if (studentResult.rows.length > 0) {
+                    await client.query(
+                        'UPDATE public.student SET email = $1 WHERE studentid = $2',
+                        [studentEmail, studentResult.rows[0].studentid]
+                    );
+                    studentResult.rows[0].email = studentEmail;
+                }
+            }
+        }
+        
+        if (studentResult.rows.length === 0) {
+            return res.status(404).json({ message: 'Student not found. Please ensure you are enrolled in courses.' });
+        }
+        
+        const studentId = studentResult.rows[0].studentid;
+        
+        // Get courses for this student
+        const coursesQuery = `
+            SELECT DISTINCT
+                c.courseid,
+                c.course_name,
+                c.semester,
+                c.class_time,
+                p.professorid,
+                p.professorname,
+                p.email as professor_email
+            FROM public.student_course sc
+            JOIN public.course c ON sc.courseid = c.courseid
+            JOIN public.professor p ON c.professorid = p.professorid
+            WHERE sc.studentid = $1
+            ORDER BY c.semester DESC, c.course_name
+        `;
+        
+        const coursesResult = await client.query(coursesQuery, [studentId]);
+        
+        res.status(200).json({
+            student: {
+                studentid: studentId,
+                studentname: studentResult.rows[0].studentname,
+                email: studentResult.rows[0].email
+            },
+            courses: coursesResult.rows
+        });
+        
+    } catch (err) {
+        console.error('Get student courses error:', err.stack);
+        res.status(500).json({ message: 'Failed to fetch student courses' });
+    } finally {
+        if (client) {
+            client.release();
+        }
+    }
+});
+
+// ---------------------------------------------
 // --- API Endpoint: Fetch Teammates (GET) ---
 // ---------------------------------------------
 app.get('/api/teammates', async (req, res) => {
-    // MOCK: Assuming 'Ryan Danziger' (studentid 3) is the current evaluator
-    const evaluatorId = 3; 
-    let client; // Used for connection leak fix
-
-    const query = `
-        SELECT 
-            studentid AS id, 
-            studentname AS name
-        FROM public.student  -- *** FIX: public. prefix added ***
-        WHERE studentid != $1
-        ORDER BY studentname;
-    `;
-
+    const { courseId, groupId, studentEmail } = req.query;
+    
+    if (!courseId || !groupId || !studentEmail) {
+        return res.status(400).json({ message: 'courseId, groupId, and studentEmail are required' });
+    }
+    
+    let client;
+    
     try {
-        client = await pool.connect(); // FIX: Manual acquire for reliable release
-        const result = await client.query(query, [evaluatorId]); 
-        res.status(200).json(result.rows);
+        client = await pool.connect();
+        
+        // First, try to find student by email
+        let studentResult = await client.query(
+            'SELECT studentid FROM public.student WHERE email = $1 LIMIT 1',
+            [studentEmail]
+        );
+        
+        // If not found, try to find by matching user email and student name
+        if (studentResult.rows.length === 0) {
+            const userResult = await client.query(
+                'SELECT id, username, email, first_name, last_name FROM public.users WHERE email = $1 LIMIT 1',
+                [studentEmail]
+            );
+            
+            if (userResult.rows.length > 0) {
+                const user = userResult.rows[0];
+                const nameMatch = `${user.first_name || ''} ${user.last_name || ''}`.trim() || user.username;
+                studentResult = await client.query(
+                    'SELECT studentid FROM public.student WHERE studentname ILIKE $1 LIMIT 1',
+                    [nameMatch]
+                );
+            }
+        }
+        
+        if (studentResult.rows.length === 0) {
+            return res.status(404).json({ message: 'Student not found' });
+        }
+        
+        const evaluatorId = studentResult.rows[0].studentid;
+        
+        // Get teammates from the same group in the same course (excluding the evaluator)
+        const query = `
+            SELECT 
+                s.studentid AS id, 
+                s.studentname AS name
+            FROM public.student_group sg
+            JOIN public.student s ON sg.studentid = s.studentid
+            WHERE sg.courseid = $1 
+                AND sg.groupid = $2
+                AND s.studentid != $3
+            ORDER BY s.studentname;
+        `;
+
+        const result = await client.query(query, [courseId, groupId, evaluatorId]); 
+        res.status(200).json({
+            teammates: result.rows,
+            evaluatorId: evaluatorId
+        });
     } catch (err) {
-        console.error('Error fetching student list:', err.stack);
+        console.error('Error fetching teammates:', err.stack);
         res.status(500).json({ message: 'Failed to retrieve teammate list from database.' });
     } finally {
         if (client) {
-            client.release(); // FIX: Ensure client is released
+            client.release();
         }
     }
 });
@@ -811,48 +1008,74 @@ app.get('/api/professors/:professorId/courses', async (req, res) => {
     try {
         client = await pool.connect();
         
-        // First, try to find professor by email or name if professorId is not numeric
-        let profId = professorId;
+        // professorId can be a username, email, or numeric ID
+        let profId = null;
         
-        // If professorId is not a number, try to find by email or name
+        // If professorId is not a number, try to find by username first (from users table)
         if (isNaN(professorId)) {
             console.log(`Looking up professor with identifier: ${professorId}`);
             
-            // Try to find by email first, then by username
-            let profResult = await client.query(
-                'SELECT professorid, email, professorname FROM public.professor WHERE email = $1',
-                [professorId]
+            // First, try to find user by username
+            const userResult = await client.query(
+                'SELECT id, username, email, first_name, last_name FROM public.users WHERE username = $1 AND role = $2',
+                [professorId, 'professor']
             );
             
-            console.log(`Email lookup result: ${profResult.rows.length} rows`);
-            if (profResult.rows.length > 0) {
-                console.log(`Found professor:`, profResult.rows[0]);
-            }
-            
-            if (profResult.rows.length === 0) {
-                // Try by username/name
-                profResult = await client.query(
-                    'SELECT professorid, email, professorname FROM public.professor WHERE professorname = $1',
+            if (userResult.rows.length > 0) {
+                const user = userResult.rows[0];
+                console.log(`Found professor user:`, user.username);
+                
+                // Now find the professor record linked to this user
+                // Try by email first, then by name matching
+                let profResult = await client.query(
+                    'SELECT professorid, email, professorname FROM public.professor WHERE email = $1',
+                    [user.email]
+                );
+                
+                if (profResult.rows.length === 0) {
+                    // Try by username match
+                    profResult = await client.query(
+                        'SELECT professorid, email, professorname FROM public.professor WHERE professorname = $1',
+                        [user.username]
+                    );
+                }
+                
+                if (profResult.rows.length === 0) {
+                    // Try by first + last name
+                    const fullName = `${user.first_name || ''} ${user.last_name || ''}`.trim();
+                    if (fullName) {
+                        profResult = await client.query(
+                            'SELECT professorid, email, professorname FROM public.professor WHERE professorname = $1',
+                            [fullName]
+                        );
+                    }
+                }
+                
+                if (profResult.rows.length > 0) {
+                    profId = profResult.rows[0].professorid;
+                    console.log(`Found professor record with ID: ${profId}`);
+                } else {
+                    console.log(`No professor record found for user ${user.username}, returning empty courses`);
+                    return res.status(200).json({ courses: [] });
+                }
+            } else {
+                // Fallback: try direct lookup in professor table by email or name
+                let profResult = await client.query(
+                    'SELECT professorid, email, professorname FROM public.professor WHERE email = $1 OR professorname = $1',
                     [professorId]
                 );
-                console.log(`Username lookup result: ${profResult.rows.length} rows`);
+                
                 if (profResult.rows.length > 0) {
-                    console.log(`Found professor:`, profResult.rows[0]);
+                    profId = profResult.rows[0].professorid;
+                    console.log(`Found professor by email/name with ID: ${profId}`);
+                } else {
+                    console.log(`No professor found for identifier: ${professorId}`);
+                    return res.status(200).json({ courses: [] });
                 }
             }
-            
-            if (profResult.rows.length > 0) {
-                profId = profResult.rows[0].professorid;
-                console.log(`Using professor ID: ${profId} for course lookup`);
-            } else {
-                // Don't auto-create professor here - let course creation handle it
-                // Return empty array if no professor found
-                console.log(`No professor found for identifier: ${professorId}`);
-                console.log(`Listing all professors in database:`);
-                const allProfs = await client.query('SELECT professorid, email, professorname FROM public.professor');
-                console.log('All professors:', JSON.stringify(allProfs.rows, null, 2));
-                return res.status(200).json({ courses: [] });
-            }
+        } else {
+            // Numeric ID - use directly
+            profId = parseInt(professorId);
         }
         
         // Query courses for this professor - using the exact schema structure

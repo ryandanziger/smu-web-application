@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import API_URL from '../config';
 import { Form, Spinner } from 'react-bootstrap';
 import { useAuth } from '../contexts/AuthContext';
-import { useNavigate } from 'react-router-dom'; 
+import { useNavigate, useLocation } from 'react-router-dom'; 
 
 // --- Color Palette (matching Figma wireframes) ---
 const COLORS = {
@@ -175,21 +175,31 @@ function RatingInput({ label, value, onChange, name, error, scaleType = "default
 
 // --- Main Component ---
 export default function EvaluationForm() {
-  // *** CRITICAL: Set the ID of the current user to exclude them from the list ***
-  // Based on your data, let's assume the evaluator is Ryan Danziger (ID 3)
-  const MOCK_EVALUATOR_ID = 3;
-  
-  const { logout } = useAuth();
+  const location = useLocation();
+  const { user } = useAuth();
   const navigate = useNavigate();
-
-  const handleLogout = () => {
-    logout();
-    navigate('/login');
+  
+  // Get course and group info from navigation state
+  const courseId = location.state?.courseId;
+  const groupId = location.state?.groupId;
+  const courseName = location.state?.courseName;
+  const groupName = location.state?.groupName;
+  
+  const handleReturn = () => {
+    navigate('/evaluation-selection');
   }; 
 
   const [teammates, setTeammates] = useState([]); 
+  const [evaluatorId, setEvaluatorId] = useState(null);
   const [isLoading, setIsLoading] = useState(true); 
-  const [fetchError, setFetchError] = useState(null); 
+  const [fetchError, setFetchError] = useState(null);
+  
+  // If no course/group selected, redirect to selection
+  useEffect(() => {
+    if (!courseId || !groupId) {
+      navigate('/evaluation-selection');
+    }
+  }, [courseId, groupId, navigate]); 
     
   const [currentTeammateIndex, setCurrentTeammateIndex] = useState(0);
   const [evaluations, setEvaluations] = useState([]);
@@ -210,32 +220,40 @@ export default function EvaluationForm() {
   
   // --- Fetch Teammates Data on Component Mount ---
   useEffect(() => {
+    if (!courseId || !groupId || !user?.email) {
+      return;
+    }
+    
     const fetchTeammates = async () => {
       try {
-        const response = await fetch(`${API_URL}/api/teammates`);
+        const params = new URLSearchParams({
+          courseId: courseId.toString(),
+          groupId: groupId.toString(),
+          studentEmail: user.email
+        });
+        
+        const response = await fetch(`${API_URL}/api/teammates?${params}`);
         if (!response.ok) {
           throw new Error(`HTTP error! status: ${response.status}`);
         }
         const data = await response.json();
         
-        // Filter out the current evaluator using the mock ID
-        const filteredData = data.filter(t => t.id !== MOCK_EVALUATOR_ID); 
-        
-        setTeammates(filteredData);
-        if (filteredData.length === 0) {
-            setFetchError("No teammates found to evaluate.");
+        setTeammates(data.teammates || []);
+        setEvaluatorId(data.evaluatorId);
+        if (!data.teammates || data.teammates.length === 0) {
+          setFetchError("No teammates found in this group to evaluate.");
         }
         
       } catch (error) {
         console.error("Failed to fetch teammates:", error);
-        setFetchError(`Could not load teammates. Is the backend server running on port 3001? Error: ${error.message}`);
+        setFetchError(`Could not load teammates. Error: ${error.message}`);
       } finally {
         setIsLoading(false);
       }
     };
     
     fetchTeammates();
-  }, []); // Empty dependency array means run once on mount
+  }, [courseId, groupId, user]);
 
 
   // --- Helper Functions (UNCHANGED) ---
@@ -271,9 +289,14 @@ export default function EvaluationForm() {
     e.preventDefault();
     if (!validateForm() || !currentTeammate) return;
 
+    if (!evaluatorId) {
+      setErrors({ general: 'Evaluator ID not found. Please refresh the page.' });
+      return;
+    }
+    
     const apiPayload = {
       teammateId: currentTeammate.id,
-      evaluatorId: MOCK_EVALUATOR_ID, // Use the correct evaluator ID
+      evaluatorId: evaluatorId,
       feedback: formData.feedback,
       
       contribution_score: formData.criticalthink, 
@@ -372,30 +395,23 @@ export default function EvaluationForm() {
           <p style={{ color: COLORS.TEXT_PRIMARY, marginBottom: '24px' }}>
             Completed and submitted evaluations for all {teammates.length} peers.
           </p>
-          <div style={{ display: 'flex', gap: '10px', justifyContent: 'center' }}>
+          <div style={{ display: 'flex', gap: '10px', justifyContent: 'center', flexWrap: 'wrap' }}>
             <button
-              onClick={() => {
-                setShowSuccess(false);
-                setCurrentTeammateIndex(0);
-                setEvaluations([]);
-                resetForm();
-              }}
+              onClick={handleReturn}
               style={successButtonStyle}
+              onMouseOver={(e) => e.target.style.backgroundColor = COLORS.TAN_SELECTED}
+              onMouseOut={(e) => e.target.style.backgroundColor = COLORS.TAN_SELECTED}
             >
-              START NEW EVALUATION
-            </button>
-            <button
-              onClick={handleLogout}
-              style={{
-                ...successButtonStyle,
-                backgroundColor: COLORS.ERROR_RED,
-              }}
-              onMouseOver={(e) => e.target.style.backgroundColor = '#B56565'}
-              onMouseOut={(e) => e.target.style.backgroundColor = COLORS.ERROR_RED}
-            >
-              LOGOUT
+              RETURN TO SELECTION
             </button>
           </div>
+          {courseName && groupName && (
+            <div style={{ marginTop: '20px', padding: '15px', backgroundColor: '#f9f9f9', borderRadius: '8px' }}>
+              <p style={{ margin: 0, fontSize: '14px', color: COLORS.TEXT_SECONDARY }}>
+                <strong>Course:</strong> {courseName} | <strong>Group:</strong> {groupName}
+              </p>
+            </div>
+          )}
         </div>
       );
   }
@@ -520,7 +536,12 @@ export default function EvaluationForm() {
       {/* Header Banner - Full Width Image/Title */}
       <div style={headerBannerStyle}>
           <div style={titleContainerStyle}>
-              <h1 style={evalTitleStyle}>Peer Evaluation</h1> 
+              <h1 style={evalTitleStyle}>Peer Evaluation</h1>
+              {courseName && groupName && (
+                <div style={{ fontSize: '18px', fontWeight: 'normal', marginTop: '10px', color: 'rgba(255,255,255,0.9)' }}>
+                  {courseName} - {groupName}
+                </div>
+              )}
           </div>
       </div>
       

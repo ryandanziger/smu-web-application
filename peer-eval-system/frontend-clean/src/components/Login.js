@@ -54,7 +54,7 @@ export default function Login() {
       
       // Navigate based on role
       if (data.user.role === 'student') {
-        navigate('/evaluation');
+        navigate('/evaluation-selection');
       } else {
         navigate('/dashboard');
       }

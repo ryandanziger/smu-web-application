@@ -5,6 +5,7 @@ import Signup from './components/Signup.js';
 import ForgotPassword from './components/ForgotPassword.js';
 import ResetPassword from './components/ResetPassword.js';
 import EvaluationForm from './components/EvaluationForm.js';
+import EvaluationSelection from './components/EvaluationSelection.js';
 import ProfessorDashboard from './components/ProfessorDashboard.js';
 import CourseCreation from './components/CourseCreation.js';
 import CourseRoster from './components/CourseRoster.js';
@@ -58,7 +59,7 @@ function AppContent() {
           <Navbar.Collapse id="smu-navbar">
             <Nav className="ms-auto">
               {user?.role === 'student' && (
-                <Nav.Link as={Link} to="/evaluation" className="text-light">Evaluation</Nav.Link>
+                <Nav.Link as={Link} to="/evaluation-selection" className="text-light">Evaluation</Nav.Link>
               )}
               {user?.role === 'professor' && (
                 <>
@@ -81,6 +82,11 @@ function AppContent() {
         <Route path="/forgot-password" element={<ForgotPassword />} />
         <Route path="/reset-password" element={<ResetPassword />} />
         <Route path="/" element={<Navigate to="/login" replace />} />
+        <Route path="/evaluation-selection" element={
+          <ProtectedRoute allowedRoles={['student']}>
+            <EvaluationSelection />
+          </ProtectedRoute>
+        } />
         <Route path="/evaluation" element={
           <ProtectedRoute allowedRoles={['student']}>
             <Container className="py-5">

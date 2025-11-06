@@ -67,10 +67,7 @@ const corsOptions = {
     optionsSuccessStatus: 200 // Some legacy browsers (IE11, various SmartTVs) choke on 204
 };
 
-app.use(cors(corsOptions));
-app.use(express.json());
-
-// Handle preflight requests explicitly (some browsers need this)
+// Handle preflight requests FIRST, before other middleware
 app.options('*', (req, res) => {
     const origin = req.headers.origin;
     const allowedOrigins = [
@@ -79,17 +76,26 @@ app.options('*', (req, res) => {
         'http://localhost:3001'
     ].filter(Boolean);
     
+    console.log('[OPTIONS] Request from origin:', origin);
+    console.log('[OPTIONS] Allowed origins:', allowedOrigins);
+    
     // Allow the origin if it's in the allowed list, or if no CORS_ORIGIN is set (development)
     if (allowedOrigins.length === 0 || (origin && allowedOrigins.includes(origin))) {
         res.header('Access-Control-Allow-Origin', origin || '*');
         res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS, PATCH');
         res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With');
         res.header('Access-Control-Allow-Credentials', 'true');
+        res.header('Access-Control-Max-Age', '86400'); // 24 hours
+        console.log('[OPTIONS] Allowing origin:', origin);
         res.sendStatus(200);
     } else {
+        console.log('[OPTIONS] Blocking origin:', origin);
         res.sendStatus(403);
     }
 });
+
+app.use(cors(corsOptions));
+app.use(express.json());
 
 // Log CORS configuration on startup
 const allowedOriginsList = [

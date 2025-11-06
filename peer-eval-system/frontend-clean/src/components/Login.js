@@ -50,10 +50,26 @@ export default function Login() {
         }),
       });
 
-      const data = await response.json();
+      // Check if response is JSON
+      let data;
+      try {
+        data = await response.json();
+      } catch (jsonError) {
+        const text = await response.text();
+        console.error('Failed to parse JSON response:', text);
+        throw new Error(`Server error (${response.status}): ${response.statusText}`);
+      }
 
       if (!response.ok) {
-        throw new Error(data.message || 'Login failed');
+        // Show detailed error from backend
+        const errorMsg = data.message || data.error || `HTTP ${response.status}: ${response.statusText}`;
+        console.error('Login failed:', {
+          status: response.status,
+          message: errorMsg,
+          detail: data.detail,
+          fullError: data
+        });
+        throw new Error(errorMsg);
       }
 
       // Use the real user data from the API

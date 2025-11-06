@@ -37,26 +37,35 @@ const pool = new Pool({
 // CORS configuration - allow requests from frontend
 const corsOptions = {
     origin: function (origin, callback) {
+        const corsOrigin = process.env.CORS_ORIGIN;
         const allowedOrigins = [
-            process.env.CORS_ORIGIN,
+            corsOrigin,
             'http://localhost:3000',
             'http://localhost:3001'
         ].filter(Boolean); // Remove undefined values
         
-        // Allow requests with no origin (like mobile apps or curl requests)
-        if (!origin) return callback(null, true);
+        console.log('[CORS] Request origin:', origin);
+        console.log('[CORS] CORS_ORIGIN env var:', corsOrigin || 'NOT SET');
+        console.log('[CORS] Allowed origins:', allowedOrigins);
         
-        // If no allowed origins configured, allow all (for development)
-        if (allowedOrigins.length === 0) {
-            console.log('⚠️  No CORS_ORIGIN set, allowing all origins');
+        // Allow requests with no origin (like mobile apps or curl requests)
+        if (!origin) {
+            console.log('[CORS] No origin header, allowing');
+            return callback(null, true);
+        }
+        
+        // If no CORS_ORIGIN configured, allow all (for development)
+        if (!corsOrigin) {
+            console.log('⚠️  [CORS] No CORS_ORIGIN set, allowing all origins');
             return callback(null, true);
         }
         
         if (allowedOrigins.includes(origin)) {
+            console.log(`✅ [CORS] Allowing origin: ${origin}`);
             callback(null, true);
         } else {
-            console.log(`❌ CORS blocked origin: ${origin}`);
-            console.log(`✅ Allowed origins: ${allowedOrigins.join(', ')}`);
+            console.log(`❌ [CORS] Blocked origin: ${origin}`);
+            console.log(`✅ [CORS] Allowed origins: ${allowedOrigins.join(', ')}`);
             callback(new Error('Not allowed by CORS'));
         }
     },
@@ -67,34 +76,7 @@ const corsOptions = {
     optionsSuccessStatus: 200 // Some legacy browsers (IE11, various SmartTVs) choke on 204
 };
 
-// Handle preflight requests FIRST, before other middleware
-// Use catch-all pattern that Express supports
-app.options('/*', (req, res) => {
-    const origin = req.headers.origin;
-    const allowedOrigins = [
-        process.env.CORS_ORIGIN,
-        'http://localhost:3000',
-        'http://localhost:3001'
-    ].filter(Boolean);
-    
-    console.log('[OPTIONS] Request from origin:', origin);
-    console.log('[OPTIONS] Allowed origins:', allowedOrigins);
-    
-    // Allow the origin if it's in the allowed list, or if no CORS_ORIGIN is set (development)
-    if (allowedOrigins.length === 0 || (origin && allowedOrigins.includes(origin))) {
-        res.header('Access-Control-Allow-Origin', origin || '*');
-        res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS, PATCH');
-        res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With');
-        res.header('Access-Control-Allow-Credentials', 'true');
-        res.header('Access-Control-Max-Age', '86400'); // 24 hours
-        console.log('[OPTIONS] Allowing origin:', origin);
-        res.sendStatus(200);
-    } else {
-        console.log('[OPTIONS] Blocking origin:', origin);
-        res.sendStatus(403);
-    }
-});
-
+// Use CORS middleware - it handles OPTIONS automatically
 app.use(cors(corsOptions));
 app.use(express.json());
 

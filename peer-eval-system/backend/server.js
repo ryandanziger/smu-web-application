@@ -68,7 +68,8 @@ const corsOptions = {
 };
 
 // Handle preflight requests FIRST, before other middleware
-app.options('*', (req, res) => {
+// Use catch-all pattern that Express supports
+app.options('/*', (req, res) => {
     const origin = req.headers.origin;
     const allowedOrigins = [
         process.env.CORS_ORIGIN,

@@ -72,11 +72,23 @@ app.use(express.json());
 
 // Handle preflight requests explicitly (some browsers need this)
 app.options('*', (req, res) => {
-    res.header('Access-Control-Allow-Origin', req.headers.origin || '*');
-    res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS, PATCH');
-    res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With');
-    res.header('Access-Control-Allow-Credentials', 'true');
-    res.sendStatus(200);
+    const origin = req.headers.origin;
+    const allowedOrigins = [
+        process.env.CORS_ORIGIN,
+        'http://localhost:3000',
+        'http://localhost:3001'
+    ].filter(Boolean);
+    
+    // Allow the origin if it's in the allowed list, or if no CORS_ORIGIN is set (development)
+    if (allowedOrigins.length === 0 || (origin && allowedOrigins.includes(origin))) {
+        res.header('Access-Control-Allow-Origin', origin || '*');
+        res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS, PATCH');
+        res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With');
+        res.header('Access-Control-Allow-Credentials', 'true');
+        res.sendStatus(200);
+    } else {
+        res.sendStatus(403);
+    }
 });
 
 // Log CORS configuration on startup

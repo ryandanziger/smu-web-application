@@ -54,9 +54,10 @@ const corsOptions = {
             return callback(null, true);
         }
         
-        // If no CORS_ORIGIN configured, allow all (for development)
+        // If no CORS_ORIGIN configured, allow all (for development/debugging)
         if (!corsOrigin) {
-            console.log('⚠️  [CORS] No CORS_ORIGIN set, allowing all origins');
+            console.log('⚠️  [CORS] No CORS_ORIGIN set in environment variables, allowing all origins');
+            console.log('⚠️  [CORS] Set CORS_ORIGIN=https://smu-web-application-1.onrender.com in Render environment variables');
             return callback(null, true);
         }
         
@@ -247,8 +248,15 @@ app.post('/api/login', async (req, res) => {
         });
         
     } catch (err) {
-        console.error('Login error:', err.stack);
-        res.status(500).json({ message: 'Login failed' });
+        console.error('[LOGIN] ERROR:', err.message);
+        console.error('[LOGIN] ERROR Stack:', err.stack);
+        console.error('[LOGIN] ERROR Code:', err.code);
+        console.error('[LOGIN] ERROR Detail:', err.detail);
+        res.status(500).json({ 
+            message: 'Login failed',
+            error: err.message,
+            detail: err.detail || null
+        });
     } finally {
         if (client) {
             client.release();

@@ -31,8 +31,15 @@ export default function Login() {
     setIsLoading(true);
     setError('');
 
+    // Debug logging
+    const loginUrl = `${API_URL}/api/login`;
+    console.log('🔐 LOGIN ATTEMPT:');
+    console.log('  API_URL:', API_URL);
+    console.log('  Full URL:', loginUrl);
+    console.log('  REACT_APP_API_URL env:', process.env.REACT_APP_API_URL);
+
     try {
-      const response = await fetch(`${API_URL}/api/login`, {
+      const response = await fetch(loginUrl, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

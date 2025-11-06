@@ -569,7 +569,9 @@ app.get('/api/professors', async (req, res) => {
     let client;
     
     try {
+        console.log('[GET /api/professors] Starting request');
         client = await pool.connect();
+        console.log('[GET /api/professors] Database connection acquired');
         
         // Get all users with role 'professor' who have at least one course
         // First, get all professor users
@@ -580,50 +582,72 @@ app.get('/api/professors', async (req, res) => {
             ORDER BY u.username
         `;
         
+        console.log('[GET /api/professors] Executing users query');
         const usersResult = await client.query(usersQuery);
+        console.log(`[GET /api/professors] Found ${usersResult.rows.length} professor users`);
         
         // For each user, check if they have courses by finding their professor record
         const professors = [];
         
         for (const user of usersResult.rows) {
-            // Try to find professor record by email, username, or name
-            let profResult = await client.query(
-                'SELECT professorid, email, professorname FROM public.professor WHERE email = $1 OR professorname = $2 OR professorname = $3',
-                [user.email, user.username, `${user.first_name || ''} ${user.last_name || ''}`.trim()]
-            );
-            
-            if (profResult.rows.length > 0) {
-                const profId = profResult.rows[0].professorid;
-                
-                // Check if this professor has any courses
-                const courseCheck = await client.query(
-                    'SELECT COUNT(*) as course_count FROM public.course WHERE professorid = $1',
-                    [profId]
+            try {
+                // Try to find professor record by email, username, or name
+                let profResult = await client.query(
+                    'SELECT professorid, email, professorname FROM public.professor WHERE email = $1 OR professorname = $2 OR professorname = $3',
+                    [user.email, user.username, `${user.first_name || ''} ${user.last_name || ''}`.trim()]
                 );
                 
-                if (parseInt(courseCheck.rows[0].course_count) > 0) {
-                    professors.push({
-                        username: user.username,
-                        email: user.email || profResult.rows[0].email,
-                        first_name: user.first_name,
-                        last_name: user.last_name,
-                        professorid: profId,
-                        professorname: profResult.rows[0].professorname || user.username
-                    });
+                if (profResult.rows.length > 0) {
+                    const profId = profResult.rows[0].professorid;
+                    console.log(`[GET /api/professors] Found professor record for user ${user.username}, ID: ${profId}`);
+                    
+                    // Check if this professor has any courses
+                    const courseCheck = await client.query(
+                        'SELECT COUNT(*) as course_count FROM public.course WHERE professorid = $1',
+                        [profId]
+                    );
+                    
+                    const courseCount = parseInt(courseCheck.rows[0].course_count);
+                    console.log(`[GET /api/professors] User ${user.username} has ${courseCount} courses`);
+                    
+                    if (courseCount > 0) {
+                        professors.push({
+                            username: user.username,
+                            email: user.email || profResult.rows[0].email,
+                            first_name: user.first_name,
+                            last_name: user.last_name,
+                            professorid: profId,
+                            professorname: profResult.rows[0].professorname || user.username
+                        });
+                    }
+                } else {
+                    console.log(`[GET /api/professors] No professor record found for user ${user.username}`);
                 }
+            } catch (userErr) {
+                console.error(`[GET /api/professors] Error processing user ${user.username}:`, userErr.message);
+                // Continue with next user
             }
         }
         
+        console.log(`[GET /api/professors] Returning ${professors.length} professors with courses`);
         res.status(200).json({
             professors: professors
         });
         
     } catch (err) {
-        console.error('Get professors error:', err.stack);
-        res.status(500).json({ message: 'Failed to fetch professors' });
+        console.error('[GET /api/professors] ERROR:', err.message);
+        console.error('[GET /api/professors] ERROR Stack:', err.stack);
+        console.error('[GET /api/professors] ERROR Code:', err.code);
+        console.error('[GET /api/professors] ERROR Detail:', err.detail);
+        res.status(500).json({ 
+            message: 'Failed to fetch professors',
+            error: err.message,
+            detail: err.detail || null
+        });
     } finally {
         if (client) {
             client.release();
+            console.log('[GET /api/professors] Database connection released');
         }
     }
 });

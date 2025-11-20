@@ -178,12 +178,13 @@ export default function EvaluationForm() {
   const location = useLocation();
   const { user } = useAuth();
   const navigate = useNavigate();
-  
+
   // Get course and group info from navigation state
   const courseId = location.state?.courseId;
   const groupId = location.state?.groupId;
   const courseName = location.state?.courseName;
   const groupName = location.state?.groupName;
+  const assignmentId = location.state?.assignmentId;
   
   const handleReturn = () => {
     navigate('/evaluation-selection');
@@ -192,7 +193,7 @@ export default function EvaluationForm() {
   const [teammates, setTeammates] = useState([]); 
   const [evaluatorId, setEvaluatorId] = useState(null);
   const [isLoading, setIsLoading] = useState(true); 
-  const [fetchError, setFetchError] = useState(null);
+  const [fetchError, setFetchError] = useState(null); 
   
   // If no course/group selected, redirect to selection
   useEffect(() => {
@@ -293,7 +294,7 @@ export default function EvaluationForm() {
       setErrors({ general: 'Evaluator ID not found. Please refresh the page.' });
       return;
     }
-    
+
     const apiPayload = {
       teammateId: currentTeammate.id,
       evaluatorId: evaluatorId,
@@ -330,6 +331,18 @@ export default function EvaluationForm() {
             resetForm();
         } else {
             setShowSuccess(true);
+            // Mark assignment as completed if this was from an assignment
+            if (assignmentId) {
+                try {
+                    await fetch(`${API_URL}/api/evaluation-assignments/${assignmentId}/complete`, {
+                        method: 'PATCH',
+                    });
+                    console.log('Assignment marked as completed');
+                } catch (err) {
+                    console.error('Failed to mark assignment as completed:', err);
+                    // Don't show error to user, evaluation was still submitted
+                }
+            }
         }
 
     } catch (error) {
@@ -536,7 +549,7 @@ export default function EvaluationForm() {
       {/* Header Banner - Full Width Image/Title */}
       <div style={headerBannerStyle}>
           <div style={titleContainerStyle}>
-              <h1 style={evalTitleStyle}>Peer Evaluation</h1>
+              <h1 style={evalTitleStyle}>Peer Evaluation</h1> 
               {courseName && groupName && (
                 <div style={{ fontSize: '18px', fontWeight: 'normal', marginTop: '10px', color: 'rgba(255,255,255,0.9)' }}>
                   {courseName} - {groupName}

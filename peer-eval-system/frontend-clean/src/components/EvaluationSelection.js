@@ -22,33 +22,33 @@ const COLORS = {
 export default function EvaluationSelection() {
   const { user } = useAuth();
   const navigate = useNavigate();
-  const [professors, setProfessors] = useState([]);
-  const [courses, setCourses] = useState([]);
-  const [groups, setGroups] = useState([]);
-  const [selectedProfessor, setSelectedProfessor] = useState(null);
-  const [selectedCourse, setSelectedCourse] = useState(null);
-  const [selectedGroup, setSelectedGroup] = useState(null);
+  const [assignments, setAssignments] = useState([]);
+  const [selectedAssignment, setSelectedAssignment] = useState(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState('');
 
   useEffect(() => {
-    fetchProfessors();
-  }, []);
+    if (user && user.email) {
+      fetchAssignments();
+    }
+  }, [user]);
 
-  const fetchProfessors = async () => {
+  const fetchAssignments = async () => {
     try {
       setIsLoading(true);
       setError('');
       
-      console.log('Fetching professors from:', `${API_URL}/api/professors`);
+      if (!user || !user.email) {
+        setError('User email not found. Please log in again.');
+        setIsLoading(false);
+        return;
+      }
       
-      const response = await fetch(`${API_URL}/api/professors`);
+      console.log('Fetching assignments for student:', user.email);
       
-      console.log('Response status:', response.status);
-      console.log('Response ok:', response.ok);
+      const response = await fetch(`${API_URL}/api/students/${encodeURIComponent(user.email)}/evaluation-assignments`);
       
       if (!response.ok) {
-        // Try to get error message from response
         let errorMessage = `HTTP ${response.status}: ${response.statusText}`;
         try {
           const contentType = response.headers.get('content-type');
@@ -64,108 +64,71 @@ export default function EvaluationSelection() {
           console.error('Error parsing error response:', e);
           errorMessage = `Server error (${response.status}). Check backend logs.`;
         }
-        setError(`Failed to load professors: ${errorMessage}`);
+        setError(`Failed to load assignments: ${errorMessage}`);
         return;
       }
       
       const data = await response.json();
-      console.log('Professors data:', data);
+      console.log('Assignments data:', data);
       
-      setProfessors(data.professors || []);
-      if (data.professors && data.professors.length === 0) {
-        setError('No professors with courses found.');
+      setAssignments(data.assignments || []);
+      if (data.assignments && data.assignments.length === 0) {
+        setError('No evaluation assignments found. Your professor will assign evaluations when they are ready.');
       }
     } catch (err) {
-      console.error('Error fetching professors:', err);
+      console.error('Error fetching assignments:', err);
       console.error('Error details:', {
         message: err.message,
         stack: err.stack,
         name: err.name
       });
       
-      // More specific error messages
       if (err.message.includes('Failed to fetch') || err.message.includes('NetworkError')) {
-        setError(`Cannot connect to backend. Please verify REACT_APP_API_URL is set to: ${API_URL}`);
+        setError(`Cannot connect to backend. Please verify the API is accessible.`);
       } else {
-        setError(`Failed to load professors: ${err.message}`);
+        setError(`Failed to load assignments: ${err.message}`);
       }
     } finally {
       setIsLoading(false);
     }
-  };
-
-  const fetchCourses = async (professorId) => {
-    try {
-      setIsLoading(true);
-      const response = await fetch(`${API_URL}/api/professors/${professorId}/courses`);
-      const data = await response.json();
-      
-      if (response.ok) {
-        setCourses(data.courses || []);
-        if (data.courses && data.courses.length === 0) {
-          setError('This professor has no courses.');
-        } else {
-          setError('');
-        }
-      } else {
-        setError(data.message || 'Failed to load courses');
-      }
-    } catch (err) {
-      console.error('Error fetching courses:', err);
-      setError('Failed to load courses. Please try again.');
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  const fetchGroups = async (courseId) => {
-    try {
-      const response = await fetch(`${API_URL}/api/courses/${courseId}/groups`);
-      const data = await response.json();
-      
-      if (response.ok) {
-        setGroups(data.groups || []);
-      } else {
-        setError(data.message || 'Failed to load groups');
-      }
-    } catch (err) {
-      console.error('Error fetching groups:', err);
-      setError('Failed to load groups. Please try again.');
-    }
-  };
-
-  const handleProfessorSelect = (professor) => {
-    setSelectedProfessor(professor);
-    setSelectedCourse(null);
-    setSelectedGroup(null);
-    setCourses([]);
-    setGroups([]);
-    // Use username as identifier (backend will look it up)
-    fetchCourses(professor.username);
-  };
-
-  const handleCourseSelect = (course) => {
-    setSelectedCourse(course);
-    setSelectedGroup(null);
-    setGroups([]);
-    fetchGroups(course.courseid);
-  };
-
-  const handleGroupSelect = (group) => {
-    setSelectedGroup(group);
   };
 
   const handleStartEvaluation = () => {
-    if (selectedCourse && selectedGroup) {
+    if (selectedAssignment) {
       navigate('/evaluation', {
         state: {
-          courseId: selectedCourse.courseid,
-          groupId: selectedGroup.groupid,
-          courseName: selectedCourse.course_name,
-          groupName: selectedGroup.group_name,
-          professorName: selectedProfessor?.professorname
+          courseId: selectedAssignment.courseid,
+          groupId: selectedAssignment.groupid,
+          courseName: selectedAssignment.course_name,
+          groupName: selectedAssignment.group_name,
+          professorName: selectedAssignment.professorname,
+          assignmentId: selectedAssignment.assignmentid,
+          dueDate: selectedAssignment.due_date
         }
       });
+    }
+  };
+
+  const formatDate = (dateString) => {
+    if (!dateString) return 'N/A';
+    const date = new Date(dateString);
+    return date.toLocaleDateString('en-US', { 
+      year: 'numeric', 
+      month: 'short', 
+      day: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit'
+    });
+  };
+
+  const getStatusColor = (status) => {
+    switch (status) {
+      case 'completed':
+        return COLORS.SUCCESS_GREEN;
+      case 'overdue':
+        return COLORS.ERROR_RED;
+      default:
+        return COLORS.TEXT_SECONDARY;
     }
   };
 
@@ -250,12 +213,12 @@ export default function EvaluationSelection() {
     textAlign: 'center',
   };
 
-  if (isLoading && professors.length === 0) {
+  if (isLoading) {
     return (
       <div style={containerStyle}>
         <div style={cardStyle}>
           <div style={{ textAlign: 'center', padding: '40px' }}>
-            Loading professors...
+            Loading your evaluation assignments...
           </div>
         </div>
       </div>
@@ -265,106 +228,87 @@ export default function EvaluationSelection() {
   return (
     <div style={containerStyle}>
       <div style={cardStyle}>
-        <h1 style={titleStyle}>Select Professor, Course, and Group</h1>
+        <h1 style={titleStyle}>My Evaluation Assignments</h1>
         
         {error && <div style={errorStyle}>{error}</div>}
 
-        {/* Professor Selection */}
-        <div style={sectionStyle}>
-          <h2 style={sectionTitleStyle}>1. Select Professor</h2>
-          {professors.length === 0 ? (
-            <div style={{ padding: '20px', textAlign: 'center', color: COLORS.TEXT_SECONDARY }}>
-              No professors available
-            </div>
-          ) : (
-            professors.map((professor) => (
-              <div
-                key={professor.username}
-                style={selectedProfessor?.username === professor.username ? selectedItemStyle : listItemStyle}
-                onClick={() => handleProfessorSelect(professor)}
-              >
-                <div style={{ fontWeight: '600', fontSize: '18px' }}>
-                  {professor.username}
-                </div>
-                {professor.email && (
-                  <div style={{ color: COLORS.TEXT_SECONDARY, fontSize: '14px' }}>
-                    {professor.email}
-                  </div>
-                )}
-              </div>
-            ))
-          )}
-        </div>
-
-        {/* Course Selection */}
-        {selectedProfessor && (
-          <div style={sectionStyle}>
-            <h2 style={sectionTitleStyle}>2. Select Course</h2>
-            {isLoading ? (
-              <div style={{ padding: '20px', textAlign: 'center', color: COLORS.TEXT_SECONDARY }}>
-                Loading courses...
-              </div>
-            ) : courses.length === 0 ? (
-              <div style={{ padding: '20px', textAlign: 'center', color: COLORS.TEXT_SECONDARY }}>
-                No courses available for this professor
-              </div>
-            ) : (
-              courses.map((course) => (
-                <div
-                  key={course.courseid}
-                  style={selectedCourse?.courseid === course.courseid ? selectedItemStyle : listItemStyle}
-                  onClick={() => handleCourseSelect(course)}
-                >
-                  <div style={{ fontWeight: '600', fontSize: '18px', marginBottom: '5px' }}>
-                    {course.course_name}
-                  </div>
-                  <div style={{ color: COLORS.TEXT_SECONDARY, fontSize: '14px' }}>
-                    Semester: {course.semester}
-                    {course.class_time && ` | Time: ${course.class_time}`}
-                  </div>
-                </div>
-              ))
-            )}
+        {assignments.length === 0 && !error ? (
+          <div style={{ padding: '40px', textAlign: 'center', color: COLORS.TEXT_SECONDARY }}>
+            <p style={{ fontSize: '18px', marginBottom: '10px' }}>
+              No evaluation assignments found.
+            </p>
+            <p style={{ fontSize: '14px' }}>
+              Your professor will assign evaluations when they are ready. Please check back later.
+            </p>
           </div>
-        )}
-
-        {/* Group Selection */}
-        {selectedCourse && (
+        ) : (
           <div style={sectionStyle}>
-            <h2 style={sectionTitleStyle}>3. Select Group</h2>
-            {groups.length === 0 ? (
-              <div style={{ padding: '20px', textAlign: 'center', color: COLORS.TEXT_SECONDARY }}>
-                No groups available for this course
-              </div>
-            ) : (
-              groups.map((group) => (
-                <div
-                  key={group.groupid}
-                  style={selectedGroup?.groupid === group.groupid ? selectedItemStyle : listItemStyle}
-                  onClick={() => handleGroupSelect(group)}
-                >
-                  <div style={{ fontWeight: '600', fontSize: '18px' }}>
-                    {group.group_name}
-                  </div>
-                  <div style={{ color: COLORS.TEXT_SECONDARY, fontSize: '14px' }}>
-                    {group.student_count || 0} member(s)
-                  </div>
+            <h2 style={sectionTitleStyle}>Assigned Evaluations</h2>
+            {assignments.map((assignment) => (
+              <div
+                key={assignment.assignmentid}
+                style={selectedAssignment?.assignmentid === assignment.assignmentid ? selectedItemStyle : {
+                  ...listItemStyle,
+                  borderLeft: `4px solid ${getStatusColor(assignment.status)}`,
+                }}
+                onClick={() => setSelectedAssignment(assignment)}
+              >
+                <div style={{ fontWeight: '600', fontSize: '18px', marginBottom: '8px' }}>
+                  {assignment.assignment_name || 'Peer Evaluation'}
                 </div>
-              ))
-            )}
+                <div style={{ color: COLORS.TEXT_PRIMARY, fontSize: '16px', marginBottom: '5px' }}>
+                  <strong>Course:</strong> {assignment.course_name} ({assignment.semester})
+                </div>
+                <div style={{ color: COLORS.TEXT_PRIMARY, fontSize: '16px', marginBottom: '5px' }}>
+                  <strong>Group:</strong> {assignment.group_name}
+                </div>
+                <div style={{ color: COLORS.TEXT_PRIMARY, fontSize: '16px', marginBottom: '5px' }}>
+                  <strong>Professor:</strong> {assignment.professorname}
+                </div>
+                <div style={{ color: COLORS.TEXT_PRIMARY, fontSize: '16px', marginBottom: '5px' }}>
+                  <strong>Due Date:</strong> {formatDate(assignment.due_date)}
+                </div>
+                <div style={{ 
+                  color: getStatusColor(assignment.status), 
+                  fontSize: '16px',
+                  fontWeight: '600',
+                  marginTop: '8px'
+                }}>
+                  Status: {assignment.status.charAt(0).toUpperCase() + assignment.status.slice(1)}
+                  {assignment.completed_at && (
+                    <span style={{ marginLeft: '10px', fontSize: '14px' }}>
+                      (Completed: {formatDate(assignment.completed_at)})
+                    </span>
+                  )}
+                </div>
+              </div>
+            ))}
           </div>
         )}
 
         {/* Start Evaluation Button */}
-        {selectedCourse && selectedGroup && (
+        {selectedAssignment && selectedAssignment.status !== 'completed' && (
           <button
             onClick={handleStartEvaluation}
             style={buttonStyle}
             onMouseOver={(e) => e.target.style.backgroundColor = '#0f1538'}
             onMouseOut={(e) => e.target.style.backgroundColor = COLORS.NAVY_BUTTON}
           >
-            Start Evaluation
+            {selectedAssignment.status === 'overdue' ? 'Start Evaluation (Overdue)' : 'Start Evaluation'}
           </button>
+        )}
+
+        {selectedAssignment && selectedAssignment.status === 'completed' && (
+          <div style={{ 
+            padding: '15px', 
+            backgroundColor: '#efe', 
+            color: COLORS.SUCCESS_GREEN, 
+            borderRadius: '8px',
+            textAlign: 'center',
+            marginTop: '20px'
+          }}>
+            ✓ This evaluation has been completed.
+          </div>
         )}
       </div>
     </div>

@@ -44,27 +44,21 @@ const corsOptions = {
             'http://localhost:3001'
         ].filter(Boolean); // Remove undefined values
         
-        console.log('[CORS] Request origin:', origin);
-        console.log('[CORS] CORS_ORIGIN env var:', corsOrigin || 'NOT SET');
-        console.log('[CORS] Allowed origins:', allowedOrigins);
-        
         // Allow requests with no origin (like mobile apps or curl requests)
         if (!origin) {
-            console.log('[CORS] No origin header, allowing');
             return callback(null, true);
         }
         
         // If no CORS_ORIGIN configured, allow all (for development/debugging)
+        // Only log warning once on startup, not for every request
         if (!corsOrigin) {
-            console.log('⚠️  [CORS] No CORS_ORIGIN set in environment variables, allowing all origins');
-            console.log('⚠️  [CORS] Set CORS_ORIGIN=https://smu-web-application-1.onrender.com in Render environment variables');
             return callback(null, true);
         }
         
         if (allowedOrigins.includes(origin)) {
-            console.log(`✅ [CORS] Allowing origin: ${origin}`);
             callback(null, true);
         } else {
+            // Only log blocked requests (errors)
             console.log(`❌ [CORS] Blocked origin: ${origin}`);
             console.log(`✅ [CORS] Allowed origins: ${allowedOrigins.join(', ')}`);
             callback(new Error('Not allowed by CORS'));
@@ -81,15 +75,20 @@ const corsOptions = {
 app.use(cors(corsOptions));
 app.use(express.json());
 
-// Log CORS configuration on startup
+// Log CORS configuration on startup (only once)
 const allowedOriginsList = [
     process.env.CORS_ORIGIN,
     'http://localhost:3000',
     'http://localhost:3001'
 ].filter(Boolean);
-console.log('CORS Configuration:');
-console.log('  CORS_ORIGIN:', process.env.CORS_ORIGIN || 'http://localhost:3000');
-console.log('  Allowed origins:', allowedOriginsList.join(', ') || 'None (allowing all)');
+const corsOrigin = process.env.CORS_ORIGIN;
+if (!corsOrigin) {
+    console.log('⚠️  [CORS] CORS_ORIGIN not set - allowing all origins (development mode)');
+    console.log('⚠️  [CORS] For production, set CORS_ORIGIN=https://smu-web-application-1.onrender.com in Render environment variables');
+} else {
+    console.log('✅ [CORS] CORS_ORIGIN:', corsOrigin);
+    console.log('✅ [CORS] Allowed origins:', allowedOriginsList.join(', '));
+}
 
 // Root route for health check
 app.get('/', (req, res) => {
@@ -173,6 +172,46 @@ app.post('/api/signup', async (req, res) => {
         
         const newUser = result.rows[0];
         
+        // If student, try to link to existing student record
+        if (newUser.role === 'student') {
+            try {
+                // Ensure student table has user_id column
+                await client.query(`
+                    ALTER TABLE public.student 
+                    ADD COLUMN IF NOT EXISTS user_id INTEGER REFERENCES public.users(id) ON DELETE SET NULL
+                `);
+                
+                // Try to find student record by email or name
+                let studentResult = await client.query(
+                    'SELECT studentid FROM public.student WHERE email = $1 OR user_id = $2 LIMIT 1',
+                    [newUser.email, newUser.id]
+                );
+                
+                if (studentResult.rows.length === 0) {
+                    // Try to find by name matching
+                    const fullName = `${newUser.first_name || ''} ${newUser.last_name || ''}`.trim();
+                    if (fullName) {
+                        studentResult = await client.query(
+                            'SELECT studentid FROM public.student WHERE studentname ILIKE $1 AND user_id IS NULL LIMIT 1',
+                            [`%${fullName}%`]
+                        );
+                    }
+                }
+                
+                if (studentResult.rows.length > 0) {
+                    // Link student record to user account
+                    await client.query(
+                        'UPDATE public.student SET user_id = $1, email = COALESCE(email, $2) WHERE studentid = $3',
+                        [newUser.id, newUser.email, studentResult.rows[0].studentid]
+                    );
+                    console.log(`Linked student record ${studentResult.rows[0].studentid} to user account ${newUser.id}`);
+                }
+            } catch (err) {
+                // Non-critical, just log
+                console.log('Note: Could not link student record during signup:', err.message);
+            }
+        }
+        
         res.status(201).json({
             message: 'User created successfully',
             user: {
@@ -231,6 +270,58 @@ app.post('/api/login', async (req, res) => {
         
         if (!isValidPassword) {
             return res.status(401).json({ message: 'Invalid username or password' });
+        }
+        
+        // If student, try to link to student record on login
+        if (user.role === 'student') {
+            try {
+                // Ensure student table has user_id column
+                await client.query(`
+                    ALTER TABLE public.student 
+                    ADD COLUMN IF NOT EXISTS user_id INTEGER REFERENCES public.users(id) ON DELETE SET NULL
+                `);
+                
+                // Check if already linked
+                let studentResult = await client.query(
+                    'SELECT studentid FROM public.student WHERE user_id = $1 LIMIT 1',
+                    [user.id]
+                );
+                
+                if (studentResult.rows.length === 0) {
+                    // Try to find by email
+                    studentResult = await client.query(
+                        'SELECT studentid FROM public.student WHERE email = $1 LIMIT 1',
+                        [user.email]
+                    );
+                    
+                    if (studentResult.rows.length > 0) {
+                        // Link student record to user account
+                        await client.query(
+                            'UPDATE public.student SET user_id = $1, email = COALESCE(email, $2) WHERE studentid = $3',
+                            [user.id, user.email, studentResult.rows[0].studentid]
+                        );
+                    } else {
+                        // Try name matching
+                        const fullName = `${user.first_name || ''} ${user.last_name || ''}`.trim();
+                        if (fullName) {
+                            studentResult = await client.query(
+                                'SELECT studentid FROM public.student WHERE studentname ILIKE $1 AND user_id IS NULL LIMIT 1',
+                                [`%${fullName}%`]
+                            );
+                            
+                            if (studentResult.rows.length > 0) {
+                                await client.query(
+                                    'UPDATE public.student SET user_id = $1, email = COALESCE(email, $2) WHERE studentid = $3',
+                                    [user.id, user.email, studentResult.rows[0].studentid]
+                                );
+                            }
+                        }
+                    }
+                }
+            } catch (err) {
+                // Non-critical, just log
+                console.log('Note: Could not link student record during login:', err.message);
+            }
         }
         
         // Return user data (excluding password hash)
@@ -1793,6 +1884,551 @@ app.delete('/api/courses/:courseId/groups/:groupId/students/:studentId', async (
     } catch (err) {
         console.error('Remove student from group error:', err.stack);
         res.status(500).json({ message: 'Failed to remove student from group' });
+    } finally {
+        if (client) {
+            client.release();
+        }
+    }
+});
+
+// ============================================
+// EVALUATION ASSIGNMENT ENDPOINTS
+// ============================================
+
+// ---------------------------------------------
+// --- API Endpoint: Create Evaluation Assignment (POST) ---
+// ---------------------------------------------
+app.post('/api/evaluation-assignments', async (req, res) => {
+    const { courseId, groupId, evaluatorStudentIds, dueDate, assignmentName, points, availableFrom, until } = req.body;
+    
+    console.log('[CREATE ASSIGNMENT] Request received:', {
+        courseId,
+        groupId,
+        evaluatorStudentIds: evaluatorStudentIds?.length || 0,
+        dueDate,
+        assignmentName,
+        points
+    });
+    
+    if (!courseId || !groupId || !Array.isArray(evaluatorStudentIds) || evaluatorStudentIds.length === 0) {
+        console.log('[CREATE ASSIGNMENT] Validation failed:', {
+            courseId: !!courseId,
+            groupId: !!groupId,
+            evaluatorStudentIds: Array.isArray(evaluatorStudentIds),
+            evaluatorStudentIdsLength: evaluatorStudentIds?.length || 0
+        });
+        return res.status(400).json({ message: 'Course ID, Group ID, and at least one evaluator student ID are required' });
+    }
+    
+    if (!dueDate) {
+        console.log('[CREATE ASSIGNMENT] Due date missing');
+        return res.status(400).json({ message: 'Due date is required' });
+    }
+    
+    let client;
+    
+    try {
+        client = await pool.connect();
+        await client.query('BEGIN');
+        
+        // Verify course and group exist
+        const courseCheck = await client.query('SELECT courseid FROM public.course WHERE courseid = $1', [courseId]);
+        if (courseCheck.rows.length === 0) {
+            await client.query('ROLLBACK');
+            console.log('[CREATE ASSIGNMENT] Course not found:', courseId);
+            return res.status(404).json({ message: 'Course not found' });
+        }
+        
+        const groupCheck = await client.query('SELECT groupid FROM public.group WHERE groupid = $1', [groupId]);
+        if (groupCheck.rows.length === 0) {
+            await client.query('ROLLBACK');
+            console.log('[CREATE ASSIGNMENT] Group not found:', groupId);
+            return res.status(404).json({ message: 'Group not found' });
+        }
+        
+        console.log('[CREATE ASSIGNMENT] Course and group verified');
+        
+        // Create evaluation assignment record
+        // First, check if evaluation_assignments table exists, if not we'll create it via SQL
+        const createTableQuery = `
+            CREATE TABLE IF NOT EXISTS public.evaluation_assignments (
+                assignmentid SERIAL PRIMARY KEY,
+                courseid INTEGER NOT NULL REFERENCES public.course(courseid) ON DELETE CASCADE,
+                groupid INTEGER NOT NULL REFERENCES public.group(groupid) ON DELETE CASCADE,
+                evaluator_studentid INTEGER NOT NULL REFERENCES public.student(studentid) ON DELETE CASCADE,
+                due_date TIMESTAMP NOT NULL,
+                assignment_name VARCHAR(255),
+                points INTEGER DEFAULT 0,
+                available_from TIMESTAMP,
+                available_until TIMESTAMP,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                completed_at TIMESTAMP,
+                UNIQUE(courseid, groupid, evaluator_studentid)
+            );
+        `;
+        
+        await client.query(createTableQuery);
+        
+        const assignments = [];
+        const errors = [];
+        
+        // Create assignment for each evaluator
+        console.log(`[CREATE ASSIGNMENT] Processing ${evaluatorStudentIds.length} evaluator(s)`);
+        
+        for (const evaluatorStudentId of evaluatorStudentIds) {
+            try {
+                console.log(`[CREATE ASSIGNMENT] Processing student ${evaluatorStudentId}`);
+                
+                // First, verify student exists
+                const studentExists = await client.query(
+                    'SELECT studentid, studentname FROM public.student WHERE studentid = $1',
+                    [evaluatorStudentId]
+                );
+                
+                if (studentExists.rows.length === 0) {
+                    const errorMsg = `Student ${evaluatorStudentId} does not exist`;
+                    console.log(`[CREATE ASSIGNMENT] ${errorMsg}`);
+                    errors.push(errorMsg);
+                    continue;
+                }
+                
+                // Verify student is enrolled in the course, if not, auto-enroll them
+                let studentCheck = await client.query(
+                    'SELECT studentid FROM public.student_course WHERE courseid = $1 AND studentid = $2',
+                    [courseId, evaluatorStudentId]
+                );
+                
+                if (studentCheck.rows.length === 0) {
+                    console.log(`[CREATE ASSIGNMENT] Student ${evaluatorStudentId} not enrolled, auto-enrolling...`);
+                    try {
+                        await client.query(
+                            'INSERT INTO public.student_course (courseid, studentid) VALUES ($1, $2) ON CONFLICT DO NOTHING',
+                            [courseId, evaluatorStudentId]
+                        );
+                        console.log(`[CREATE ASSIGNMENT] Successfully enrolled student ${evaluatorStudentId} in course ${courseId}`);
+                        // Re-check enrollment
+                        studentCheck = await client.query(
+                            'SELECT studentid FROM public.student_course WHERE courseid = $1 AND studentid = $2',
+                            [courseId, evaluatorStudentId]
+                        );
+                    } catch (enrollErr) {
+                        const errorMsg = `Student ${evaluatorStudentId} (${studentExists.rows[0].studentname}) is not enrolled in this course and could not be auto-enrolled: ${enrollErr.message}`;
+                        console.log(`[CREATE ASSIGNMENT] ${errorMsg}`);
+                        errors.push(errorMsg);
+                        continue;
+                    }
+                }
+                
+                // Check if assignment already exists
+                const existingCheck = await client.query(
+                    'SELECT assignmentid FROM public.evaluation_assignments WHERE courseid = $1 AND groupid = $2 AND evaluator_studentid = $3',
+                    [courseId, groupId, evaluatorStudentId]
+                );
+                
+                if (existingCheck.rows.length > 0) {
+                    const errorMsg = `Assignment already exists for student ${evaluatorStudentId} (${studentExists.rows[0].studentname})`;
+                    console.log(`[CREATE ASSIGNMENT] ${errorMsg}`);
+                    errors.push(errorMsg);
+                    continue;
+                }
+                
+                // Insert assignment
+                const insertQuery = `
+                    INSERT INTO public.evaluation_assignments (courseid, groupid, evaluator_studentid, due_date, assignment_name, points, available_from, available_until)
+                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+                    RETURNING assignmentid, courseid, groupid, evaluator_studentid, due_date, assignment_name, points, available_from, available_until, created_at
+                `;
+                
+                console.log(`[CREATE ASSIGNMENT] Inserting assignment for student ${evaluatorStudentId}`, {
+                    courseId,
+                    groupId,
+                    dueDate,
+                    assignmentName,
+                    points
+                });
+                
+                const result = await client.query(insertQuery, [
+                    courseId,
+                    groupId,
+                    evaluatorStudentId,
+                    dueDate,
+                    assignmentName || null,
+                    points || 0,
+                    availableFrom || null,
+                    until || null
+                ]);
+                
+                console.log(`[CREATE ASSIGNMENT] Successfully created assignment ${result.rows[0].assignmentid} for student ${evaluatorStudentId}`);
+                assignments.push(result.rows[0]);
+            } catch (err) {
+                console.error(`[CREATE ASSIGNMENT] Error creating assignment for student ${evaluatorStudentId}:`, err);
+                console.error(`[CREATE ASSIGNMENT] Error stack:`, err.stack);
+                console.error(`[CREATE ASSIGNMENT] Error code:`, err.code);
+                console.error(`[CREATE ASSIGNMENT] Error detail:`, err.detail);
+                errors.push(`Failed to create assignment for student ${evaluatorStudentId}: ${err.message}${err.detail ? ` (${err.detail})` : ''}`);
+            }
+        }
+        
+        console.log(`[CREATE ASSIGNMENT] Results: ${assignments.length} created, ${errors.length} errors`);
+        
+        if (assignments.length === 0) {
+            await client.query('ROLLBACK');
+            console.log('[CREATE ASSIGNMENT] Rolling back transaction - no assignments created');
+            console.log('[CREATE ASSIGNMENT] Errors:', errors);
+            return res.status(400).json({ 
+                message: 'Failed to create any assignments',
+                errors: errors,
+                details: 'Check server logs for more information'
+            });
+        }
+        
+        await client.query('COMMIT');
+        
+        res.status(201).json({
+            message: `Successfully created ${assignments.length} assignment(s)`,
+            assignments: assignments,
+            errors: errors.length > 0 ? errors : undefined
+        });
+        
+    } catch (err) {
+        await client.query('ROLLBACK');
+        console.error('Create evaluation assignment error:', err.stack);
+        res.status(500).json({ message: 'Failed to create evaluation assignment', error: err.message });
+    } finally {
+        if (client) {
+            client.release();
+        }
+    }
+});
+
+// ---------------------------------------------
+// --- API Endpoint: Get Evaluation Assignments for Course (GET) ---
+// ---------------------------------------------
+app.get('/api/courses/:courseId/evaluation-assignments', async (req, res) => {
+    const { courseId } = req.params;
+    
+    let client;
+    
+    try {
+        client = await pool.connect();
+        
+        // Check if table exists first
+        const tableCheck = await client.query(`
+            SELECT EXISTS (
+                SELECT FROM information_schema.tables 
+                WHERE table_schema = 'public' 
+                AND table_name = 'evaluation_assignments'
+            );
+        `);
+        
+        if (!tableCheck.rows[0].exists) {
+            return res.status(200).json({ assignments: [] });
+        }
+        
+        const query = `
+            SELECT 
+                ea.assignmentid,
+                ea.courseid,
+                ea.groupid,
+                ea.evaluator_studentid,
+                ea.due_date,
+                ea.assignment_name,
+                ea.points,
+                ea.available_from,
+                ea.available_until,
+                ea.created_at,
+                ea.completed_at,
+                s.studentname as evaluator_name,
+                s.email as evaluator_email,
+                g.group_name,
+                c.course_name,
+                CASE 
+                    WHEN ea.completed_at IS NOT NULL THEN 'completed'
+                    WHEN ea.due_date < CURRENT_TIMESTAMP THEN 'overdue'
+                    ELSE 'pending'
+                END as status
+            FROM public.evaluation_assignments ea
+            JOIN public.student s ON ea.evaluator_studentid = s.studentid
+            JOIN public.group g ON ea.groupid = g.groupid
+            JOIN public.course c ON ea.courseid = c.courseid
+            WHERE ea.courseid = $1
+            ORDER BY ea.due_date ASC, s.studentname ASC
+        `;
+        
+        const result = await client.query(query, [courseId]);
+        
+        res.status(200).json({ assignments: result.rows });
+        
+    } catch (err) {
+        console.error('Get evaluation assignments error:', err.stack);
+        res.status(500).json({ message: 'Failed to fetch evaluation assignments', error: err.message });
+    } finally {
+        if (client) {
+            client.release();
+        }
+    }
+});
+
+// ---------------------------------------------
+// --- API Endpoint: Get Evaluation Assignments for Student (GET) ---
+// ---------------------------------------------
+app.get('/api/students/:studentEmail/evaluation-assignments', async (req, res) => {
+    const { studentEmail } = req.params;
+    
+    let client;
+    
+    try {
+        client = await pool.connect();
+        
+        // First, try to find user account by email
+        const userResult = await client.query(
+            'SELECT id, email, username, first_name, last_name FROM public.users WHERE email = $1 AND role = $2 LIMIT 1',
+            [studentEmail, 'student']
+        );
+        
+        let studentId = null;
+        
+        if (userResult.rows.length > 0) {
+            const user = userResult.rows[0];
+            
+            // Try to find student record linked to this user account
+            // First, check if student table has a user_id column (new approach)
+            const hasUserIdColumn = await client.query(`
+                SELECT column_name 
+                FROM information_schema.columns 
+                WHERE table_schema = 'public' 
+                AND table_name = 'student' 
+                AND column_name = 'user_id'
+            `);
+            
+            if (hasUserIdColumn.rows.length > 0) {
+                // Use direct user_id link
+                const studentByUserId = await client.query(
+                    'SELECT studentid, studentname, email FROM public.student WHERE user_id = $1 LIMIT 1',
+                    [user.id]
+                );
+                
+                if (studentByUserId.rows.length > 0) {
+                    studentId = studentByUserId.rows[0].studentid;
+                } else {
+                    // Try to find by email and link it
+                    let studentByEmail = await client.query(
+                        'SELECT studentid, studentname, email FROM public.student WHERE email = $1 LIMIT 1',
+                        [user.email]
+                    );
+                    
+                    if (studentByEmail.rows.length > 0) {
+                        // Link the student record to the user account
+                        await client.query(
+                            'UPDATE public.student SET user_id = $1, email = $2 WHERE studentid = $3',
+                            [user.id, user.email, studentByEmail.rows[0].studentid]
+                        );
+                        studentId = studentByEmail.rows[0].studentid;
+                    } else {
+                        // Try to find by name matching
+                        const fullName = `${user.first_name || ''} ${user.last_name || ''}`.trim();
+                        if (fullName) {
+                            studentByEmail = await client.query(
+                                'SELECT studentid, studentname, email FROM public.student WHERE studentname ILIKE $1 LIMIT 1',
+                                [`%${fullName}%`]
+                            );
+                            
+                            if (studentByEmail.rows.length > 0) {
+                                // Link and update email
+                                await client.query(
+                                    'UPDATE public.student SET user_id = $1, email = $2 WHERE studentid = $3',
+                                    [user.id, user.email, studentByEmail.rows[0].studentid]
+                                );
+                                studentId = studentByEmail.rows[0].studentid;
+                            }
+                        }
+                    }
+                }
+            } else {
+                // Fallback to email matching (old approach)
+                let studentResult = await client.query(
+                    'SELECT studentid, studentname, email FROM public.student WHERE email = $1 LIMIT 1',
+                    [user.email]
+                );
+                
+                if (studentResult.rows.length === 0) {
+                    // Try name matching
+                    const fullName = `${user.first_name || ''} ${user.last_name || ''}`.trim();
+                    if (fullName) {
+                        studentResult = await client.query(
+                            'SELECT studentid, studentname, email FROM public.student WHERE studentname ILIKE $1 LIMIT 1',
+                            [`%${fullName}%`]
+                        );
+                    }
+                    
+                    if (studentResult.rows.length > 0) {
+                        // Update student with email
+                        await client.query(
+                            'UPDATE public.student SET email = $1 WHERE studentid = $2',
+                            [user.email, studentResult.rows[0].studentid]
+                        );
+                    }
+                }
+                
+                if (studentResult.rows.length > 0) {
+                    studentId = studentResult.rows[0].studentid;
+                }
+            }
+        } else {
+            // No user account found - try direct student lookup by email
+            const studentResult = await client.query(
+                'SELECT studentid, studentname, email FROM public.student WHERE email = $1 LIMIT 1',
+                [studentEmail]
+            );
+            
+            if (studentResult.rows.length > 0) {
+                studentId = studentResult.rows[0].studentid;
+            }
+        }
+        
+        if (!studentId) {
+            return res.status(200).json({ assignments: [] });
+        }
+        
+        // Check if table exists
+        const tableCheck = await client.query(`
+            SELECT EXISTS (
+                SELECT FROM information_schema.tables 
+                WHERE table_schema = 'public' 
+                AND table_name = 'evaluation_assignments'
+            );
+        `);
+        
+        if (!tableCheck.rows[0].exists) {
+            return res.status(200).json({ assignments: [] });
+        }
+        
+        // Ensure student table has user_id column (add if missing)
+        try {
+            await client.query(`
+                ALTER TABLE public.student 
+                ADD COLUMN IF NOT EXISTS user_id INTEGER REFERENCES public.users(id) ON DELETE SET NULL
+            `);
+        } catch (err) {
+            // Column might already exist, ignore error
+            console.log('Note: user_id column check:', err.message);
+        }
+        
+        // Get assignments for this student
+        const query = `
+            SELECT 
+                ea.assignmentid,
+                ea.courseid,
+                ea.groupid,
+                ea.evaluator_studentid,
+                ea.due_date,
+                ea.assignment_name,
+                ea.points,
+                ea.available_from,
+                ea.available_until,
+                ea.created_at,
+                ea.completed_at,
+                g.group_name,
+                c.course_name,
+                c.semester,
+                p.professorname,
+                CASE 
+                    WHEN ea.completed_at IS NOT NULL THEN 'completed'
+                    WHEN ea.due_date < CURRENT_TIMESTAMP THEN 'overdue'
+                    WHEN ea.available_from IS NOT NULL AND ea.available_from > CURRENT_TIMESTAMP THEN 'not_available'
+                    WHEN ea.available_until IS NOT NULL AND ea.available_until < CURRENT_TIMESTAMP THEN 'expired'
+                    ELSE 'pending'
+                END as status
+            FROM public.evaluation_assignments ea
+            JOIN public.group g ON ea.groupid = g.groupid
+            JOIN public.course c ON ea.courseid = c.courseid
+            JOIN public.professor p ON c.professorid = p.professorid
+            WHERE ea.evaluator_studentid = $1
+            ORDER BY 
+                CASE 
+                    WHEN ea.completed_at IS NULL AND ea.due_date < CURRENT_TIMESTAMP THEN 1
+                    WHEN ea.completed_at IS NULL THEN 2
+                    ELSE 3
+                END,
+                ea.due_date ASC
+        `;
+        
+        const result = await client.query(query, [studentId]);
+        
+        res.status(200).json({ assignments: result.rows });
+        
+    } catch (err) {
+        console.error('Get student evaluation assignments error:', err.stack);
+        res.status(500).json({ message: 'Failed to fetch evaluation assignments', error: err.message });
+    } finally {
+        if (client) {
+            client.release();
+        }
+    }
+});
+
+// ---------------------------------------------
+// --- API Endpoint: Mark Assignment as Completed (PATCH) ---
+// ---------------------------------------------
+app.patch('/api/evaluation-assignments/:assignmentId/complete', async (req, res) => {
+    const { assignmentId } = req.params;
+    
+    let client;
+    
+    try {
+        client = await pool.connect();
+        
+        const updateQuery = `
+            UPDATE public.evaluation_assignments
+            SET completed_at = CURRENT_TIMESTAMP
+            WHERE assignmentid = $1
+            RETURNING assignmentid, completed_at
+        `;
+        
+        const result = await client.query(updateQuery, [assignmentId]);
+        
+        if (result.rows.length === 0) {
+            return res.status(404).json({ message: 'Assignment not found' });
+        }
+        
+        res.status(200).json({ 
+            message: 'Assignment marked as completed',
+            assignment: result.rows[0]
+        });
+        
+    } catch (err) {
+        console.error('Mark assignment complete error:', err.stack);
+        res.status(500).json({ message: 'Failed to mark assignment as completed', error: err.message });
+    } finally {
+        if (client) {
+            client.release();
+        }
+    }
+});
+
+// ---------------------------------------------
+// --- API Endpoint: Delete Evaluation Assignment (DELETE) ---
+// ---------------------------------------------
+app.delete('/api/evaluation-assignments/:assignmentId', async (req, res) => {
+    const { assignmentId } = req.params;
+    
+    let client;
+    
+    try {
+        client = await pool.connect();
+        
+        const deleteQuery = 'DELETE FROM public.evaluation_assignments WHERE assignmentid = $1 RETURNING assignmentid';
+        const result = await client.query(deleteQuery, [assignmentId]);
+        
+        if (result.rows.length === 0) {
+            return res.status(404).json({ message: 'Assignment not found' });
+        }
+        
+        res.status(200).json({ message: 'Assignment deleted successfully' });
+        
+    } catch (err) {
+        console.error('Delete evaluation assignment error:', err.stack);
+        res.status(500).json({ message: 'Failed to delete assignment', error: err.message });
     } finally {
         if (client) {
             client.release();

@@ -10,6 +10,7 @@ import ProfessorDashboard from './components/ProfessorDashboard.js';
 import CourseCreation from './components/CourseCreation.js';
 import CourseRoster from './components/CourseRoster.js';
 import GroupManagement from './components/GroupManagement.js';
+import EvaluationAssignment from './components/EvaluationAssignment.js';
 import DisclaimerBanner from './components/DisclaimerBanner.js';
 import { AuthProvider, useAuth } from './contexts/AuthContext.js';
 import { BrowserRouter as Router, Routes, Route, Link, Navigate } from 'react-router-dom';
@@ -120,6 +121,11 @@ function AppContent() {
         <Route path="/manage-groups/:courseId" element={
           <ProtectedRoute allowedRoles={['professor']}>
             <GroupManagement />
+          </ProtectedRoute>
+        } />
+        <Route path="/evaluation-assignments/:courseId" element={
+          <ProtectedRoute allowedRoles={['professor']}>
+            <EvaluationAssignment />
           </ProtectedRoute>
         } />
       </Routes>

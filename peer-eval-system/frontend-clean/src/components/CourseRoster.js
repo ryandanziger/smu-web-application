@@ -286,6 +286,12 @@ export default function CourseRoster() {
           >
             Manage Groups
           </button>
+          <button
+            onClick={() => navigate(`/evaluation-assignments/${courseId}`)}
+            style={buttonStyle}
+          >
+            Evaluation Assignments
+          </button>
         </div>
 
         {/* Right Panel - Import and Roster */}

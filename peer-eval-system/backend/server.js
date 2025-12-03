@@ -14,61 +14,15 @@ const app = express();
 const port = process.env.PORT || 3001;
 
 // Database Configuration 
-// Handle both DATABASE_URL (Render provides this automatically) and individual env vars
-// IMPORTANT: Render PostgreSQL requires SSL with sslmode=require
-let dbConfig = {};
-
-if (process.env.DATABASE_URL) {
-    // Render automatically sets DATABASE_URL with sslmode=require
-    // Parse the connection string and ensure SSL is properly configured
-    const parse = require('pg-connection-string').parse;
-    const parsed = parse(process.env.DATABASE_URL);
-    
-    dbConfig = {
-        ...parsed,
-        // Render PostgreSQL requires SSL but doesn't verify certificates
-        // This is the correct SSL config for Render's managed PostgreSQL
-        ssl: { 
-            rejectUnauthorized: false 
-        },
-        max: 5, // Limit connections to avoid hitting Render's limits
-    };
-    
-    console.log('[DB] Using DATABASE_URL connection (Render compatible)');
-    console.log(`[DB] Host: ${parsed.host || 'N/A'}, Database: ${parsed.database || 'N/A'}`);
-} else {
-    // Fallback to individual environment variables (for local development)
-    dbConfig = {
-        user: process.env.DB_USER,
-        host: process.env.DB_HOST,
-        database: process.env.DB_NAME,
-        password: process.env.DB_PASSWORD,
-        port: process.env.DB_PORT,
-        max: 5,
-        // SSL config for managed databases (Render, DigitalOcean, etc.)
-        ssl: process.env.DB_HOST && !process.env.DB_HOST.includes('localhost') ? {
-            rejectUnauthorized: false 
-        } : false,
-    };
-    
-    console.log('[DB] Using individual environment variables');
-    console.log(`[DB] Host: ${process.env.DB_HOST || 'N/A'}, Database: ${process.env.DB_NAME || 'N/A'}`);
-}
-
-const pool = new Pool(dbConfig);
-
-// Test database connection on startup (helpful for Render deployment debugging)
-pool.on('connect', () => {
-    console.log('[DB] ✅ Database connection established');
-});
-
-pool.on('error', (err) => {
-    console.error('[DB] ❌ Unexpected error on idle client:', err);
-    console.error('[DB] Error details:', {
-        code: err.code,
-        message: err.message,
-        detail: err.detail
-    });
+const pool = new Pool({
+  host: process.env.DB_HOST,
+  user: process.env.DB_USER,
+  password: process.env.DB_PASSWORD,
+  database: process.env.DB_NAME,
+  port: process.env.DB_PORT,
+  ssl: {
+    rejectUnauthorized: false
+  }
 });
 
 // backend/server.js (Add this after the pool configuration)

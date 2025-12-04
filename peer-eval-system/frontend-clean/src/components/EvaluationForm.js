@@ -321,73 +321,158 @@ export default function EvaluationForm() {
   }, [formData]);
 
 
-  // --- Handle Submission (UNCHANGED logic, now using fetched currentTeammate) ---
-  const handleSubmit = async (e) => {
+  // Track which evaluations have been completed (submitted to API)
+  const [completedEvaluations, setCompletedEvaluations] = useState(new Set());
+
+  // Handle "Next Peer" - just save progress and move forward
+  const handleNextPeer = (e) => {
     e.preventDefault();
     if (!validateForm() || !currentTeammate) return;
 
+    // Progress is already saved in teammateFormData state via updateFormData
+    // Just move to next teammate
+    if (currentTeammateIndex < teammates.length - 1) {
+      setCurrentTeammateIndex(currentTeammateIndex + 1);
+      setErrors({}); // Clear errors when moving forward
+    }
+  };
+
+  // Handle "Submit All Evaluations" - submit all saved evaluations
+  const handleSubmitAll = async (e) => {
+    e.preventDefault();
     if (!evaluatorId) {
       setErrors({ general: 'Evaluator ID not found. Please refresh the page.' });
       return;
     }
 
-    const apiPayload = {
-      teammateId: currentTeammate.id,
-      evaluatorId: evaluatorId,
-      feedback: formData.feedback,
+    // Validate all evaluations have been filled out
+    const allFilled = teammates.every(teammate => {
+      const data = teammateFormData[teammate.id];
+      if (!data) return false;
       
-      contribution_score: formData.criticalthink, 
-      plan_mgmt_score: formData.collaboration,
-      team_climate_score: formData.learning,
-      conflict_res_score: formData.communication,
-      overall_rating: formData.overall
-    };
+      // Check all criteria are filled
+      const allCriteriaFilled = evaluationCriteria.every(criteria => 
+        data[criteria.key] !== null && data[criteria.key] !== undefined
+      );
+      
+      // Check feedback is filled and long enough
+      const feedbackFilled = data.feedback && 
+                             data.feedback.trim().length >= 20;
+      
+      return allCriteriaFilled && feedbackFilled;
+    });
 
-    try {
+    if (!allFilled) {
+      // Find first incomplete evaluation
+      const incompleteIndex = teammates.findIndex(teammate => {
+        const data = teammateFormData[teammate.id];
+        if (!data) return true;
+        const allCriteriaFilled = evaluationCriteria.every(criteria => 
+          data[criteria.key] !== null && data[criteria.key] !== undefined
+        );
+        const feedbackFilled = data.feedback && data.feedback.trim().length >= 20;
+        return !allCriteriaFilled || !feedbackFilled;
+      });
+      
+      if (incompleteIndex !== -1) {
+        setCurrentTeammateIndex(incompleteIndex);
+        setErrors({ general: 'Please complete all evaluations before submitting.' });
+        // Trigger validation for current form
+        setTimeout(() => {
+          const teammate = teammates[incompleteIndex];
+          const data = teammateFormData[teammate.id] || {};
+          const newErrors = {};
+          evaluationCriteria.forEach(({ key, label }) => {
+            if (data[key] === null || data[key] === undefined) {
+              newErrors[key] = `Rating for "${label}" is required`;
+            }
+          });
+          if (!data.feedback || data.feedback.trim().length < 20) {
+            newErrors.feedback = 'Feedback must be at least 20 characters';
+          }
+          setErrors(newErrors);
+        }, 100);
+      }
+      return;
+    }
+
+    // Submit all evaluations
+    let allSuccessful = true;
+    const errors = [];
+
+    for (const teammate of teammates) {
+      // Skip if already submitted
+      if (completedEvaluations.has(teammate.id)) {
+        continue;
+      }
+
+      const data = teammateFormData[teammate.id];
+      if (!data) continue;
+
+      const apiPayload = {
+        teammateId: teammate.id,
+        evaluatorId: evaluatorId,
+        feedback: data.feedback,
+        contribution_score: data.criticalthink, 
+        plan_mgmt_score: data.collaboration,
+        team_climate_score: data.learning,
+        conflict_res_score: data.communication,
+        overall_rating: data.overall
+      };
+
+      try {
         const response = await fetch(`${API_URL}/api/submit-evaluation`, { 
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-            },
-            body: JSON.stringify(apiPayload),
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify(apiPayload),
         });
 
         if (!response.ok) {
-            const errorData = await response.json().catch(() => ({ message: 'No detailed error message from server.' }));
-            throw new Error(errorData.message || `HTTP Error! Status: ${response.status}`);
+          const errorData = await response.json().catch(() => ({ message: 'Submission failed' }));
+          throw new Error(errorData.message || `HTTP Error! Status: ${response.status}`);
         }
 
-        console.log("Evaluation successfully sent to API:", apiPayload);
-
-        const evaluation = { ...apiPayload, teammateName: currentTeammate.name };
-        setEvaluations([...evaluations, evaluation]);
+        console.log("Evaluation successfully submitted:", apiPayload);
         
-        // Clear form data for this teammate after successful submission
-        clearTeammateFormData(currentTeammate.id);
-        setErrors({});
+        // Mark as completed
+        setCompletedEvaluations(prev => new Set([...prev, teammate.id]));
+      } catch (error) {
+        console.error(`Failed to submit evaluation for ${teammate.name}:`, error);
+        allSuccessful = false;
+        errors.push(`${teammate.name}: ${error.message}`);
+      }
+    }
 
-        if (currentTeammateIndex < teammates.length - 1) { 
-            setCurrentTeammateIndex(currentTeammateIndex + 1);
-            resetForm();
-        } else {
-            setShowSuccess(true);
-            // Mark assignment as completed if this was from an assignment
-            if (assignmentId) {
-                try {
-                    await fetch(`${API_URL}/api/evaluation-assignments/${assignmentId}/complete`, {
-                        method: 'PATCH',
-                    });
-                    console.log('Assignment marked as completed');
-                } catch (err) {
-                    console.error('Failed to mark assignment as completed:', err);
-                    // Don't show error to user, evaluation was still submitted
-                }
-            }
+    if (allSuccessful) {
+      // Mark assignment as completed if this was from an assignment
+      if (assignmentId) {
+        try {
+          await fetch(`${API_URL}/api/evaluation-assignments/${assignmentId}/complete`, {
+            method: 'PATCH',
+          });
+          console.log('Assignment marked as completed');
+        } catch (err) {
+          console.error('Failed to mark assignment as completed:', err);
+          // Don't show error to user, evaluations were still submitted
         }
+      }
+      
+      setShowSuccess(true);
+      // Clear all form data after successful submission
+      setTeammateFormData({});
+    } else {
+      alert('Some evaluations failed to submit:\n' + errors.join('\n'));
+    }
+  };
 
-    } catch (error) {
-        console.error('Submission Error:', error);
-        alert('Failed to submit evaluation. Check the console for details. Error: ' + error.message);
+  // Unified submit handler - routes to next or submit all
+  const handleSubmit = (e) => {
+    if (currentTeammateIndex < teammates.length - 1) {
+      handleNextPeer(e);
+    } else {
+      handleSubmitAll(e);
     }
   };
 
@@ -630,8 +715,20 @@ export default function EvaluationForm() {
                       Project Management
                   </span>
                   <span style={{fontSize: '14px', color: COLORS.TEXT_SECONDARY}}>
-                      {/* Dynamically display progress: Completed / Total Peers */}
-                      {evaluations.length}/{teammates.length} completed
+                      {/* Dynamically display progress: Saved / Total Peers */}
+                      {(() => {
+                        // Count how many evaluations have been saved (have all required fields)
+                        const savedCount = teammates.filter(teammate => {
+                          const data = teammateFormData[teammate.id];
+                          if (!data) return false;
+                          const allCriteriaFilled = evaluationCriteria.every(criteria => 
+                            data[criteria.key] !== null && data[criteria.key] !== undefined
+                          );
+                          const feedbackFilled = data.feedback && data.feedback.trim().length >= 20;
+                          return allCriteriaFilled && feedbackFilled;
+                        }).length;
+                        return `${savedCount}/${teammates.length} saved`;
+                      })()}
                   </span>
               </div>
           </div>
@@ -656,10 +753,10 @@ export default function EvaluationForm() {
               {/* Rating Inputs */}
               {evaluationCriteria.map(({ key, label, scaleType, colorType }) => (
                   <RatingInput
-                      key={key}
+                      key={currentTeammate ? `${currentTeammate.id}-${key}` : key}
                       label={label}
                       name={key}
-                      value={formData[key]}
+                      value={formData[key] ?? null}
                       onChange={(value) => updateFormData({ [key]: value })}
                       error={errors[key]}
                       scaleType={scaleType}
@@ -682,6 +779,7 @@ export default function EvaluationForm() {
                           Provide specific examples of this teammate's contributions, strengths, and areas for improvement:
                       </Form.Label>
                       <Form.Control
+                          key={currentTeammate ? `feedback-${currentTeammate.id}` : 'feedback'}
                           as="textarea"
                           rows={4}
                           style={textareaStyle}
@@ -691,7 +789,7 @@ export default function EvaluationForm() {
                       />
                       <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '4px' }}>
                           <span style={{ fontSize: '12px', color: COLORS.TEXT_SECONDARY }}>
-                              Minimum 20 characters ({formData.feedback.length}/20)
+                              Minimum 20 characters ({(formData.feedback || '').length}/20)
                           </span>
                           {errors.feedback && <div style={{ color: COLORS.ERROR_RED, fontSize: '12px' }}>{errors.feedback}</div>}
                       </div>

@@ -15,8 +15,6 @@ const port = process.env.PORT || 3001;
 
 // Database Configuration - DigitalOcean PostgreSQL
 // ✅ BEST PRACTICE: Clean, simple configuration with proper error handling
-const { Pool } = require('pg');
-
 const pool = new Pool({
   host: process.env.DB_HOST,
   user: process.env.DB_USER,

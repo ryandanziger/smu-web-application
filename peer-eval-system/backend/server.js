@@ -1832,14 +1832,55 @@ app.post('/api/courses/:courseId/groups', async (req, res) => {
             });
         }
         
-        const insertQuery = `
-            INSERT INTO public."group" (group_name)
-            VALUES ($1)
-            RETURNING groupid, group_name;
-        `;
+        // Try to add courseid to group table if column doesn't exist (handled gracefully)
+        // First, check if courseid column exists in group table
+        let addCourseIdColumn = false;
+        try {
+            const columnCheck = await client.query(`
+                SELECT column_name 
+                FROM information_schema.columns 
+                WHERE table_schema = 'public' 
+                AND table_name = 'group' 
+                AND column_name = 'courseid'
+            `);
+            addCourseIdColumn = columnCheck.rows.length === 0;
+            
+            if (addCourseIdColumn) {
+                console.log('[CREATE GROUP] Adding courseid column to group table');
+                await client.query(`
+                    ALTER TABLE public."group" 
+                    ADD COLUMN courseid INTEGER REFERENCES public.course(courseid) ON DELETE CASCADE
+                `);
+            }
+        } catch (alterErr) {
+            // Column might already exist or alter failed - continue anyway
+            console.log('[CREATE GROUP] courseid column check:', alterErr.message);
+        }
         
-        const result = await client.query(insertQuery, [groupName.trim()]);
-        const newGroup = result.rows[0];
+        // Insert group with courseid if column exists, otherwise without it
+        let newGroup;
+        try {
+            // Try with courseid first (will work if column was just added or already exists)
+            const result = await client.query(`
+                INSERT INTO public."group" (group_name, courseid)
+                VALUES ($1, $2)
+                RETURNING groupid, group_name;
+            `, [groupName.trim(), courseId]);
+            newGroup = result.rows[0];
+        } catch (insertErr) {
+            // If that fails (column doesn't exist), insert without courseid
+            if (insertErr.message.includes('column') && insertErr.message.includes('courseid')) {
+                console.log('[CREATE GROUP] courseid column not available, creating group without it');
+                const result = await client.query(`
+                    INSERT INTO public."group" (group_name)
+                    VALUES ($1)
+                    RETURNING groupid, group_name;
+                `, [groupName.trim()]);
+                newGroup = result.rows[0];
+            } else {
+                throw insertErr;
+            }
+        }
         
         res.status(201).json({
             message: 'Group created successfully',
@@ -1867,17 +1908,49 @@ app.get('/api/courses/:courseId/groups', async (req, res) => {
     try {
         client = await pool.connect();
         
-        // Get only groups that have students assigned in this course
-        const query = `
-            SELECT g.groupid, g.group_name,
-                   COUNT(sg.studentid) as student_count
-            FROM public."group" g
-            INNER JOIN public.student_group sg ON g.groupid = sg.groupid
-            WHERE sg.courseid = $1
-            GROUP BY g.groupid, g.group_name
-            HAVING COUNT(sg.studentid) > 0
-            ORDER BY g.group_name;
-        `;
+        // Check if courseid column exists in group table
+        let hasCourseIdColumn = false;
+        try {
+            const columnCheck = await client.query(`
+                SELECT column_name 
+                FROM information_schema.columns 
+                WHERE table_schema = 'public' 
+                AND table_name = 'group' 
+                AND column_name = 'courseid'
+            `);
+            hasCourseIdColumn = columnCheck.rows.length > 0;
+        } catch (err) {
+            console.log('[GET GROUPS] Column check failed:', err.message);
+        }
+        
+        let query;
+        if (hasCourseIdColumn) {
+            // If courseid column exists, use it to filter groups directly
+            query = `
+                SELECT g.groupid, g.group_name,
+                       COUNT(DISTINCT sg.studentid) as student_count
+                FROM public."group" g
+                LEFT JOIN public.student_group sg ON g.groupid = sg.groupid AND sg.courseid = $1
+                WHERE g.courseid = $1
+                GROUP BY g.groupid, g.group_name
+                ORDER BY g.group_name;
+            `;
+        } else {
+            // Fallback: Get groups that have been used in this course via student_group
+            query = `
+                SELECT g.groupid, g.group_name,
+                       COUNT(DISTINCT sg.studentid) as student_count
+                FROM public."group" g
+                LEFT JOIN public.student_group sg ON g.groupid = sg.groupid AND sg.courseid = $1
+                WHERE g.groupid IN (
+                    SELECT DISTINCT groupid 
+                    FROM public.student_group 
+                    WHERE courseid = $1
+                )
+                GROUP BY g.groupid, g.group_name
+                ORDER BY g.group_name;
+            `;
+        }
         
         const result = await client.query(query, [courseId]);
         

@@ -1,6 +1,10 @@
 {
   "name": "smu-peer-eval",
   "version": "1.0.0",
+  "engines": {
+    "node": ">=18.0.0",
+    "npm": ">=9.0.0"
+  },
   "scripts": {
     "build": "cd frontend-clean && npm install && npm run build",
     "start": "cd backend && node server.js",

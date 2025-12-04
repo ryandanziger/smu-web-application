@@ -1,4 +1,4 @@
-require('dotenv').config();
+require('dotenv').config(); // optional if using only env variables
 const express = require('express');
 const path = require('path');
 const { Pool } = require('pg');
@@ -7,7 +7,7 @@ const bcrypt = require('bcryptjs');
 const crypto = require('crypto');
 const multer = require('multer');
 const csv = require('csv-parser');
-const fs = require('fs');
+const fs = require('fs'); 
 
 const app = express();
 
@@ -18,20 +18,19 @@ const pool = new Pool({
   password: process.env.DB_PASSWORD,
   database: process.env.DB_NAME,
   port: Number(process.env.DB_PORT),
-  ssl: { rejectUnauthorized: false }, // required for DO Postgres
+  ssl: { rejectUnauthorized: false } // required for DO Postgres
 });
 
 // Test DB connection
 pool.connect()
   .then(client => {
-    console.log('[DB] ✅ Successfully connected to database');
+    console.log('[DB] ✅ Successfully connected');
     client.release();
   })
   .catch(err => {
-    console.error('[DB] ❌ Failed to connect to database:');
-    console.error(err.message);
+    console.error('[DB] ❌ Failed to connect: ', err.message);
     if (err.code === 'ECONNREFUSED') {
-      console.error('[DB] ⚠️  Check your DigitalOcean Trusted Sources settings');
+      console.error('[DB] ⚠️  Check DigitalOcean Trusted Sources settings');
     }
   });
 
@@ -39,68 +38,14 @@ pool.on('error', (err) => {
   console.error('[DB] ❌ Unexpected error on idle database client:', err.message);
 });
 
-// backend/server.js (Add this after the pool configuration)
-
-
-// --- END ONE-TIME SEQUENCE FIX FUNCTION ---
-
-// Middleware
-// CORS configuration - allow requests from frontend
-const corsOptions = {
-    origin: function (origin, callback) {
-        const corsOrigin = process.env.CORS_ORIGIN;
-        const allowedOrigins = [
-            corsOrigin,
-            'http://localhost:3000',
-            'http://localhost:3001'
-        ].filter(Boolean); // Remove undefined values
-        
-        // Allow requests with no origin (like mobile apps or curl requests)
-        if (!origin) {
-            return callback(null, true);
-        }
-        
-        // If no CORS_ORIGIN configured, allow all (for development/debugging)
-        // Only log warning once on startup, not for every request
-        if (!corsOrigin) {
-            return callback(null, true);
-        }
-        
-        if (allowedOrigins.includes(origin)) {
-            callback(null, true);
-        } else {
-            // Only log blocked requests (errors)
-            console.log(`❌ [CORS] Blocked origin: ${origin}`);
-            console.log(`✅ [CORS] Allowed origins: ${allowedOrigins.join(', ')}`);
-            callback(new Error('Not allowed by CORS'));
-        }
-    },
-    credentials: true,
-    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
-    allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
-    exposedHeaders: ['Content-Type'],
-    optionsSuccessStatus: 200 // Some legacy browsers (IE11, various SmartTVs) choke on 204
-};
-
-// Use CORS middleware - it handles OPTIONS automatically
-app.use(cors(corsOptions));
+// ---------- MIDDLEWARE ----------
+app.use(cors({
+  origin: process.env.CORS_ORIGIN || '*', // if frontend is served separately, set this to its URL
+  credentials: true
+}));
 app.use(express.json());
 
-// Log CORS configuration on startup (only once)
-const allowedOriginsList = [
-    process.env.CORS_ORIGIN,
-    'http://localhost:3000',
-    'http://localhost:3001'
-].filter(Boolean);
-const corsOrigin = process.env.CORS_ORIGIN;
-if (!corsOrigin) {
-    console.log('⚠️  [CORS] CORS_ORIGIN not set - allowing all origins (development mode)');
-    console.log('⚠️  [CORS] For production, set CORS_ORIGIN=https://smu-web-application-1.onrender.com in Render environment variables');
-} else {
-    console.log('✅ [CORS] CORS_ORIGIN:', corsOrigin);
-    console.log('✅ [CORS] Allowed origins:', allowedOriginsList.join(', '));
-}
-
+// ---------- API ROUTES ----------
 // Root route for health check
 app.get('/', (req, res) => {
     res.json({ 
@@ -2485,14 +2430,17 @@ app.delete('/api/evaluation-assignments/:assignmentId', async (req, res) => {
     }
 });
 
-app.use(express.static(path.join(__dirname, '../frontend-clean/build')));
+// ---------- SERVE REACT FRONTEND ----------
+const frontendBuildPath = path.join(__dirname, '../frontend-clean/build');
+app.use(express.static(frontendBuildPath));
 
-app.get('/*', (req, res) => {
-  res.sendFile(path.join(__dirname, '../frontend-clean/build', 'index.html'));
+// Catch-all route to serve React frontend for any route not handled by /api
+app.get('/:path(*)', (req, res) => {
+  res.sendFile(path.join(frontendBuildPath, 'index.html'));
 });
 
-// Start the server
-app.listen(port, '0.0.0.0', () => {
+// ---------- START SERVER ----------
+const port = process.env.PORT || 3001;
+app.listen(port, () => {
   console.log(`Server running on port ${port}`);
-  console.log('Teammate fetch API ready at /api/teammates');
 });

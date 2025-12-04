@@ -1,0 +1,12 @@
+{
+  "name": "smu-peer-eval",
+  "version": "1.0.0",
+  "scripts": {
+    "build": "cd frontend-clean && npm install && npm run build",
+    "start": "cd backend && node server.js",
+    "install-backend": "cd backend && npm install",
+    "install-frontend": "cd frontend-clean && npm install",
+    "install": "npm run install-backend && npm run install-frontend"
+  }
+}
+

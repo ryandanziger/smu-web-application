@@ -13,52 +13,17 @@ const fs = require('fs');
 const app = express();
 const port = process.env.PORT || 3001;
 
-// Database Configuration - DigitalOcean PostgreSQL
-// ✅ BEST PRACTICE: Clean, simple configuration with proper error handling
+// Database Configuration
 const pool = new Pool({
   host: process.env.DB_HOST,
   user: process.env.DB_USER,
   password: process.env.DB_PASSWORD,
   database: process.env.DB_NAME,
-  port: Number(process.env.DB_PORT) || 5432,
-  
-  // ✅ REQUIRED FOR DIGITALOCEAN: SSL without certificate verification
+  port: Number(process.env.DB_PORT),
   ssl: {
     rejectUnauthorized: false
-  },
-  
-  // Connection pool settings (best practice)
-  max: 10, // Maximum number of clients in the pool
-  idleTimeoutMillis: 30000, // Close idle clients after 30 seconds
-  connectionTimeoutMillis: 30000, // Return error after 30 seconds if connection cannot be established
-});
-
-// Handle pool errors (best practice - prevents crashes)
-pool.on('error', (err) => {
-  console.error('[DB] ❌ Unexpected error on idle database client:', err);
-});
-
-// Test database connection on startup (best practice)
-(async () => {
-  try {
-    const client = await pool.connect();
-    const result = await client.query('SELECT NOW()');
-    console.log('[DB] ✅ Successfully connected to DigitalOcean PostgreSQL database');
-    console.log('[DB] Server time:', result.rows[0].now);
-    client.release();
-  } catch (err) {
-    console.error('[DB] ❌ Failed to connect to database:');
-    console.error('[DB] Error:', err.message);
-    console.error('[DB] Code:', err.code);
-    
-    // Helpful error guidance
-    if (err.code === 'ETIMEDOUT' || err.code === 'ECONNREFUSED') {
-      console.error('[DB] ⚠️  Check DigitalOcean Trusted Sources (Settings → Trusted Sources)');
-    } else if (err.code === '28P01') {
-      console.error('[DB] ⚠️  Authentication failed - check credentials');
-    }
   }
-})();
+});
 
 // backend/server.js (Add this after the pool configuration)
 

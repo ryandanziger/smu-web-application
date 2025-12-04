@@ -1,1 +1,5 @@
 .env
+
+# Frontend build output (should be built during deployment, not committed)
+peer-eval-system/frontend-clean/build
+frontend-clean/build

@@ -1649,10 +1649,9 @@ app.get('/api/courses/:courseId/roster', async (req, res) => {
         client = await pool.connect();
         
         const query = `
-            SELECT s.studentid, s.studentname, sg.groupid
+            SELECT DISTINCT s.studentid, s.studentname
             FROM public.student_course sc
             JOIN public.student s ON sc.studentid = s.studentid
-            LEFT JOIN public.student_group sg ON sc.studentid = sg.studentid AND sg.courseid = $1
             WHERE sc.courseid = $1
             ORDER BY s.studentname;
         `;

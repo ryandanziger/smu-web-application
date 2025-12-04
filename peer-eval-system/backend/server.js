@@ -2,6 +2,7 @@
 
 require('dotenv').config();
 const express = require('express');
+const path = require('path');
 const { Pool } = require('pg');
 const cors = require('cors');
 const bcrypt = require('bcryptjs');
@@ -13,16 +14,16 @@ const fs = require('fs');
 const app = express();
 const port = process.env.PORT || 3001;
 
-// Database Configuration
+// Database Configuration - Railway compatible
+// Railway automatically provides DATABASE_URL
 const pool = new Pool({
+  connectionString: process.env.DATABASE_URL || undefined,
   host: process.env.DB_HOST,
   user: process.env.DB_USER,
   password: process.env.DB_PASSWORD,
   database: process.env.DB_NAME,
   port: Number(process.env.DB_PORT),
-  ssl: {
-    rejectUnauthorized: false
-  }
+  ssl: { rejectUnauthorized: false },
 });
 
 // Error handling for database connection
@@ -2505,8 +2506,21 @@ app.delete('/api/evaluation-assignments/:assignmentId', async (req, res) => {
     }
 });
 
+// Serve frontend build (must be after all API routes)
+app.use(express.static(path.join(__dirname, '../frontend-clean/build')));
+
+// Catch-all handler: send back React's index.html file for client-side routing
+app.get('*', (req, res) => {
+  // Don't serve index.html for API routes
+  if (req.path.startsWith('/api')) {
+    return res.status(404).json({ message: 'API endpoint not found' });
+  }
+  res.sendFile(path.join(__dirname, '../frontend-clean/build', 'index.html'));
+});
+
 // Start the server
 app.listen(port, '0.0.0.0', () => {
   console.log(`Server running on port ${port}`);
   console.log('Teammate fetch API ready at /api/teammates');
+  console.log('Frontend build served from ../frontend-clean/build');
 });

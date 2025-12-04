@@ -38,11 +38,24 @@ pool.connect()
     client.release();
   })
   .catch(err => {
-    console.error('[DB] ❌ Failed to connect to database:');
-    console.error('[DB] Error:', err.message);
-    console.error('[DB] Code:', err.code);
-    if (err.code === 'ETIMEDOUT' || err.code === 'ECONNREFUSED') {
-      console.error('[DB] ⚠️  Check DigitalOcean Trusted Sources settings');
+    console.error('[DB] ❌ Failed to connect to database');
+    console.error('[DB] Error message:', err.message || 'No error message');
+    console.error('[DB] Error code:', err.code || 'No error code');
+    console.error('[DB] Error stack:', err.stack);
+    
+    if (err.code === 'ECONNREFUSED') {
+      console.error('[DB] ⚠️  CONNECTION REFUSED - This means:');
+      console.error('[DB]    1. The database host/port is unreachable');
+      console.error('[DB]    2. DigitalOcean firewall is blocking the connection');
+      console.error('[DB]    → Go to DigitalOcean Dashboard → Your Database → Settings → Trusted Sources');
+      console.error('[DB]    → Add Render IP or temporarily add "0.0.0.0/0" for testing');
+      console.error('[DB]    → Current connection:');
+      console.error('[DB]       Host:', process.env.DB_HOST);
+      console.error('[DB]       Port:', process.env.DB_PORT);
+    } else if (err.code === 'ETIMEDOUT') {
+      console.error('[DB] ⚠️  CONNECTION TIMEOUT - Check firewall/network settings');
+    } else if (err.code === '28P01') {
+      console.error('[DB] ⚠️  AUTHENTICATION FAILED - Check DB_USER and DB_PASSWORD');
     }
   });
 
@@ -2493,7 +2506,7 @@ app.delete('/api/evaluation-assignments/:assignmentId', async (req, res) => {
 });
 
 // Start the server
-app.listen(port, () => {
-    console.log(`Server running on http://localhost:${port}`);
-    console.log('Teammate fetch API ready at /api/teammates');
+app.listen(port, '0.0.0.0', () => {
+  console.log(`Server running on port ${port}`);
+  console.log('Teammate fetch API ready at /api/teammates');
 });

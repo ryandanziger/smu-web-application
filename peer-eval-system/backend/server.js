@@ -25,6 +25,27 @@ const pool = new Pool({
   }
 });
 
+// Error handling for database connection
+pool.on('error', (err) => {
+  console.error('[DB] ❌ Unexpected error on idle database client:', err.message);
+  console.error('[DB] Error code:', err.code);
+});
+
+// Test database connection on startup
+pool.connect()
+  .then(client => {
+    console.log('[DB] ✅ Successfully connected to database');
+    client.release();
+  })
+  .catch(err => {
+    console.error('[DB] ❌ Failed to connect to database:');
+    console.error('[DB] Error:', err.message);
+    console.error('[DB] Code:', err.code);
+    if (err.code === 'ETIMEDOUT' || err.code === 'ECONNREFUSED') {
+      console.error('[DB] ⚠️  Check DigitalOcean Trusted Sources settings');
+    }
+  });
+
 // backend/server.js (Add this after the pool configuration)
 
 

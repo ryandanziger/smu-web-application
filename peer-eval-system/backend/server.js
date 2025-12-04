@@ -40,8 +40,8 @@ app.use(cors({ origin: process.env.CORS_ORIGIN || '*', credentials: true }));
 app.use(express.json());
 
 // API routes (all routes are inline below)
-// Root route for health check
-app.get('/', (req, res) => {
+// Health check endpoint at /api
+app.get('/api', (req, res) => {
     res.json({ 
         message: 'SMU Peer Evaluation API Server',
         status: 'running',

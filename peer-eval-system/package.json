@@ -6,7 +6,7 @@
     "npm": ">=9.0.0"
   },
   "scripts": {
-    "build": "cd frontend-clean && npm install && npm run build",
+    "build": "cd frontend-clean && rm -rf build && npm install && npm run build",
     "start": "cd backend && node server.js",
     "install-backend": "cd backend && npm install",
     "install-frontend": "cd frontend-clean && npm install",

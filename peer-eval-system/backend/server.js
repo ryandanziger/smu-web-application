@@ -1,4 +1,4 @@
-require('dotenv').config(); // optional if using only env variables
+require('dotenv').config();
 const express = require('express');
 const path = require('path');
 const { Pool } = require('pg');
@@ -7,28 +7,39 @@ const bcrypt = require('bcryptjs');
 const crypto = require('crypto');
 const multer = require('multer');
 const csv = require('csv-parser');
-const fs = require('fs'); 
+const fs = require('fs');
 
 const app = express();
 
-// ---------- DATABASE SETUP ----------
-const pool = new Pool({
-  host: process.env.DB_HOST,
-  user: process.env.DB_USER,
-  password: process.env.DB_PASSWORD,
-  database: process.env.DB_NAME,
-  port: Number(process.env.DB_PORT),
-  ssl: { rejectUnauthorized: false }
-});
+// DB - supports Railway DATABASE_URL or individual env vars
+const pool = new Pool(
+  process.env.DATABASE_URL
+    ? {
+        connectionString: process.env.DATABASE_URL,
+        ssl: { rejectUnauthorized: false }
+      }
+    : {
+        host: process.env.DB_HOST,
+        user: process.env.DB_USER,
+        password: process.env.DB_PASSWORD,
+        database: process.env.DB_NAME,
+        port: Number(process.env.DB_PORT),
+        ssl: { rejectUnauthorized: false }
+      }
+);
 
-// ---------- MIDDLEWARE ----------
-app.use(cors({
-  origin: process.env.CORS_ORIGIN || '*', // if frontend is served separately, set this to its URL
-  credentials: true
-}));
+pool.connect()
+  .then(c => { console.log('[DB] ✅ Connected'); c.release(); })
+  .catch(err => {
+    console.error('[DB] ❌', err.message);
+    if (err.code === 'ECONNREFUSED') console.error('[DB] ⚠️ Check DO Trusted Sources or network');
+  });
+
+// middleware
+app.use(cors({ origin: process.env.CORS_ORIGIN || '*', credentials: true }));
 app.use(express.json());
 
-// ---------- API ROUTES ----------
+// API routes (all routes are inline below)
 // Root route for health check
 app.get('/', (req, res) => {
     res.json({ 
@@ -2413,14 +2424,15 @@ app.delete('/api/evaluation-assignments/:assignmentId', async (req, res) => {
     }
 });
 
-// ---------- SERVE REACT FRONTEND ----------
-app.use(express.static(path.join(__dirname, '../frontend-clean/build')));
-app.get('/:path(*)', (req, res) => {
-  res.sendFile(path.join(__dirname, '../frontend-clean/build', 'index.html'));
+// Serve frontend build
+const frontendBuildPath = path.join(__dirname, '../frontend-clean/build');
+app.use(express.static(frontendBuildPath));
+
+// **Correct catch-all**
+app.get('/:path(.*)', (req, res) => {
+  res.sendFile(path.join(frontendBuildPath, 'index.html'));
 });
 
-// ---------- START SERVER ----------
+// start
 const port = process.env.PORT || 3001;
-app.listen(port, () => {
-  console.log(`Server running on port ${port}`);
-});
+app.listen(port, '0.0.0.0', () => console.log(`Server running on ${port}`));

@@ -1,5 +1,3 @@
-// backend/server.js (FINALIZED CODE)
-
 require('dotenv').config();
 const express = require('express');
 const path = require('path');
@@ -9,56 +7,37 @@ const bcrypt = require('bcryptjs');
 const crypto = require('crypto');
 const multer = require('multer');
 const csv = require('csv-parser');
-const fs = require('fs'); 
+const fs = require('fs');
 
 const app = express();
-const port = process.env.PORT || 3001;
 
-// Database Configuration - Railway compatible
-// Railway automatically provides DATABASE_URL
+// ---------- DATABASE SETUP ----------
 const pool = new Pool({
-  connectionString: process.env.DATABASE_URL || undefined,
   host: process.env.DB_HOST,
   user: process.env.DB_USER,
   password: process.env.DB_PASSWORD,
   database: process.env.DB_NAME,
   port: Number(process.env.DB_PORT),
-  ssl: { rejectUnauthorized: false },
+  ssl: { rejectUnauthorized: false }, // required for DO Postgres
 });
 
-// Error handling for database connection
-pool.on('error', (err) => {
-  console.error('[DB] ❌ Unexpected error on idle database client:', err.message);
-  console.error('[DB] Error code:', err.code);
-});
-
-// Test database connection on startup
+// Test DB connection
 pool.connect()
   .then(client => {
     console.log('[DB] ✅ Successfully connected to database');
     client.release();
   })
   .catch(err => {
-    console.error('[DB] ❌ Failed to connect to database');
-    console.error('[DB] Error message:', err.message || 'No error message');
-    console.error('[DB] Error code:', err.code || 'No error code');
-    console.error('[DB] Error stack:', err.stack);
-    
+    console.error('[DB] ❌ Failed to connect to database:');
+    console.error(err.message);
     if (err.code === 'ECONNREFUSED') {
-      console.error('[DB] ⚠️  CONNECTION REFUSED - This means:');
-      console.error('[DB]    1. The database host/port is unreachable');
-      console.error('[DB]    2. DigitalOcean firewall is blocking the connection');
-      console.error('[DB]    → Go to DigitalOcean Dashboard → Your Database → Settings → Trusted Sources');
-      console.error('[DB]    → Add Render IP or temporarily add "0.0.0.0/0" for testing');
-      console.error('[DB]    → Current connection:');
-      console.error('[DB]       Host:', process.env.DB_HOST);
-      console.error('[DB]       Port:', process.env.DB_PORT);
-    } else if (err.code === 'ETIMEDOUT') {
-      console.error('[DB] ⚠️  CONNECTION TIMEOUT - Check firewall/network settings');
-    } else if (err.code === '28P01') {
-      console.error('[DB] ⚠️  AUTHENTICATION FAILED - Check DB_USER and DB_PASSWORD');
+      console.error('[DB] ⚠️  Check your DigitalOcean Trusted Sources settings');
     }
   });
+
+pool.on('error', (err) => {
+  console.error('[DB] ❌ Unexpected error on idle database client:', err.message);
+});
 
 // backend/server.js (Add this after the pool configuration)
 

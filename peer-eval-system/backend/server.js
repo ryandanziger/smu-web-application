@@ -18,24 +18,7 @@ const pool = new Pool({
   password: process.env.DB_PASSWORD,
   database: process.env.DB_NAME,
   port: Number(process.env.DB_PORT),
-  ssl: { rejectUnauthorized: false } // required for DO Postgres
-});
-
-// Test DB connection
-pool.connect()
-  .then(client => {
-    console.log('[DB] ✅ Successfully connected');
-    client.release();
-  })
-  .catch(err => {
-    console.error('[DB] ❌ Failed to connect: ', err.message);
-    if (err.code === 'ECONNREFUSED') {
-      console.error('[DB] ⚠️  Check DigitalOcean Trusted Sources settings');
-    }
-  });
-
-pool.on('error', (err) => {
-  console.error('[DB] ❌ Unexpected error on idle database client:', err.message);
+  ssl: { rejectUnauthorized: false }
 });
 
 // ---------- MIDDLEWARE ----------
@@ -2431,12 +2414,9 @@ app.delete('/api/evaluation-assignments/:assignmentId', async (req, res) => {
 });
 
 // ---------- SERVE REACT FRONTEND ----------
-const frontendBuildPath = path.join(__dirname, '../frontend-clean/build');
-app.use(express.static(frontendBuildPath));
-
-// Catch-all route to serve React frontend for any route not handled by /api
+app.use(express.static(path.join(__dirname, '../frontend-clean/build')));
 app.get('/:path(*)', (req, res) => {
-  res.sendFile(path.join(frontendBuildPath, 'index.html'));
+  res.sendFile(path.join(__dirname, '../frontend-clean/build', 'index.html'));
 });
 
 // ---------- START SERVER ----------

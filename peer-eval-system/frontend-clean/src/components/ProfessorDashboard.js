@@ -332,6 +332,14 @@ export default function ProfessorDashboard() {
             >
               Create New Course
             </button>
+            <button
+              onClick={() => navigate('/analytics')}
+              style={buttonStyle}
+              onMouseOver={(e) => e.target.style.backgroundColor = '#0f1538'}
+              onMouseOut={(e) => e.target.style.backgroundColor = COLORS.NAVY_BUTTON}
+            >
+              View Analytics
+            </button>
           </div>
 
           <h2 style={sectionTitleStyle}>My Courses</h2>

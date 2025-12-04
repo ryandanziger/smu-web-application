@@ -7,7 +7,7 @@ const bcrypt = require('bcryptjs');
 const crypto = require('crypto');
 const multer = require('multer');
 const csv = require('csv-parser');
-const fs = require('fs');
+const fs = require('fs'); 
 
 const app = express();
 
@@ -22,9 +22,9 @@ const poolConfig = process.env.DATABASE_URL
       connectionTimeoutMillis: 10000, // Return error after 10 seconds if connection could not be established
     }
   : {
-      host: process.env.DB_HOST,
+    host: process.env.DB_HOST,
       user: process.env.DB_USER,
-      password: process.env.DB_PASSWORD,
+    password: process.env.DB_PASSWORD,
       database: process.env.DB_NAME,
       port: Number(process.env.DB_PORT),
       ssl: { rejectUnauthorized: false },
@@ -177,7 +177,10 @@ app.get('/api', (req, res) => {
             getCourseAssignments: 'GET /api/courses/:courseId/evaluation-assignments',
             getStudentAssignments: 'GET /api/students/:studentEmail/evaluation-assignments',
             completeAssignment: 'PATCH /api/evaluation-assignments/:assignmentId/complete',
-            deleteAssignment: 'DELETE /api/evaluation-assignments/:assignmentId'
+            deleteAssignment: 'DELETE /api/evaluation-assignments/:assignmentId',
+            
+            // Analytics
+            analyticsDashboard: 'GET /api/analytics/dashboard'
         }
     });
 });
@@ -1871,9 +1874,9 @@ app.post('/api/courses/:courseId/groups', async (req, res) => {
             if (insertErr.message.includes('column') && insertErr.message.includes('courseid')) {
                 console.log('[CREATE GROUP] courseid column not available, creating group without it');
                 const result = await client.query(`
-                    INSERT INTO public."group" (group_name)
-                    VALUES ($1)
-                    RETURNING groupid, group_name;
+            INSERT INTO public."group" (group_name)
+            VALUES ($1)
+            RETURNING groupid, group_name;
                 `, [groupName.trim()]);
                 newGroup = result.rows[0];
             } else {
@@ -1926,14 +1929,14 @@ app.get('/api/courses/:courseId/groups', async (req, res) => {
         if (hasCourseIdColumn) {
             // If courseid column exists, use it to filter groups directly
             query = `
-                SELECT g.groupid, g.group_name,
+            SELECT g.groupid, g.group_name,
                        COUNT(DISTINCT sg.studentid) as student_count
-                FROM public."group" g
-                LEFT JOIN public.student_group sg ON g.groupid = sg.groupid AND sg.courseid = $1
+            FROM public."group" g
+            LEFT JOIN public.student_group sg ON g.groupid = sg.groupid AND sg.courseid = $1
                 WHERE g.courseid = $1
-                GROUP BY g.groupid, g.group_name
-                ORDER BY g.group_name;
-            `;
+            GROUP BY g.groupid, g.group_name
+            ORDER BY g.group_name;
+        `;
         } else {
             // Fallback: Get groups that have been used in this course via student_group
             query = `
@@ -2668,6 +2671,237 @@ app.delete('/api/evaluation-assignments/:assignmentId', async (req, res) => {
     } catch (err) {
         console.error('Delete evaluation assignment error:', err.stack);
         res.status(500).json({ message: 'Failed to delete assignment', error: err.message });
+    } finally {
+        if (client) {
+            client.release();
+        }
+    }
+});
+
+// ---------------------------------------------
+// --- API Endpoint: Get Analytics Dashboard Data (GET) ---
+// ---------------------------------------------
+app.get('/api/analytics/dashboard', async (req, res) => {
+    let client;
+    
+    try {
+        client = await pool.connect();
+        
+        // Get all analytics data in parallel
+        const [
+            totalEvaluationsResult,
+            avgScoreResult,
+            studentScoresResult,
+            totalStudentsResult,
+            submissionRateResult,
+            studentsPerGroupResult,
+            professorStatsResult,
+            evaluationsPerProfessorResult,
+            assignmentsPerGroupResult,
+            evaluationsPerSemesterResult,
+            completionRateResult
+        ] = await Promise.all([
+            // 1. Total Number of Peer Evaluations Submitted
+            client.query(`
+                SELECT COUNT(*) as count
+                FROM public.peerevaluation
+            `),
+            
+            // 2. Overall Average Peer Evaluation Score
+            client.query(`
+                SELECT AVG(
+                    (pet.contribution_score + pet.plan_mgmt_score + pet.team_climate_score + 
+                     pet.conflict_res_score + pet.overall_rating) / 5.0
+                ) as average_score
+                FROM public.peerevaluation pe
+                JOIN public.peerevaluation_target pet ON pe.evaluationid = pet.evaluationid
+            `),
+            
+            // 3. Average Peer Evaluation Scores by Student
+            client.query(`
+                SELECT 
+                    s.studentid,
+                    s.studentname,
+                    AVG(
+                        (pet.contribution_score + pet.plan_mgmt_score + pet.team_climate_score + 
+                         pet.conflict_res_score + pet.overall_rating) / 5.0
+                    ) as average_score,
+                    COUNT(pet.evaluationid) as evaluation_count
+                FROM public.student s
+                LEFT JOIN public.peerevaluation_target pet ON pet.evaluateeid = s.studentid
+                GROUP BY s.studentid, s.studentname
+                HAVING COUNT(pet.evaluationid) > 0
+                ORDER BY average_score DESC
+            `),
+            
+            // 4. Total Number of Imported Students
+            client.query(`
+                SELECT COUNT(DISTINCT studentid) as count
+                FROM public.student
+            `),
+            
+            // 5. Percentage of Students who have Submitted a Peer Evaluation
+            client.query(`
+                SELECT 
+                    COUNT(DISTINCT s.studentid) as total_students,
+                    COUNT(DISTINCT pe.evaluatorid) as students_with_submissions
+                FROM public.student s
+                LEFT JOIN public.peerevaluation pe ON pe.evaluatorid = s.studentid
+            `),
+            
+            // 6. Number of Students Assigned to each Group
+            client.query(`
+                SELECT 
+                    g.groupid,
+                    g.group_name,
+                    c.courseid,
+                    c.course_name,
+                    COUNT(DISTINCT sg.studentid) as student_count
+                FROM public."group" g
+                LEFT JOIN public.student_group sg ON g.groupid = sg.groupid
+                LEFT JOIN public.course c ON sg.courseid = c.courseid
+                WHERE sg.studentid IS NOT NULL
+                GROUP BY g.groupid, g.group_name, c.courseid, c.course_name
+                ORDER BY c.course_name, g.group_name
+            `),
+            
+            // 7. Number of Students and Courses Taught by each Professor
+            client.query(`
+                SELECT 
+                    p.professorid,
+                    p.professorname,
+                    COUNT(DISTINCT c.courseid) as course_count,
+                    COUNT(DISTINCT sc.studentid) as student_count
+                FROM public.professor p
+                LEFT JOIN public.course c ON p.professorid = c.professorid
+                LEFT JOIN public.student_course sc ON c.courseid = sc.courseid
+                GROUP BY p.professorid, p.professorname
+                ORDER BY p.professorname
+            `),
+            
+            // 8. Scheduled Peer Evaluations per Professor
+            client.query(`
+                SELECT 
+                    p.professorid,
+                    p.professorname,
+                    COUNT(ea.assignmentid) as scheduled_count
+                FROM public.professor p
+                LEFT JOIN public.course c ON p.professorid = c.professorid
+                LEFT JOIN public.evaluation_assignments ea ON c.courseid = ea.courseid
+                GROUP BY p.professorid, p.professorname
+                ORDER BY scheduled_count DESC, p.professorname
+            `),
+            
+            // 9. Total Peer Evaluation Assignments per Group
+            client.query(`
+                SELECT 
+                    g.groupid,
+                    g.group_name,
+                    c.courseid,
+                    c.course_name,
+                    COUNT(ea.assignmentid) as assignment_count
+                FROM public."group" g
+                LEFT JOIN public.evaluation_assignments ea ON g.groupid = ea.groupid
+                LEFT JOIN public.course c ON ea.courseid = c.courseid
+                WHERE ea.assignmentid IS NOT NULL
+                GROUP BY g.groupid, g.group_name, c.courseid, c.course_name
+                ORDER BY assignment_count DESC, c.course_name, g.group_name
+            `),
+            
+            // 10. Total Peer Evaluations Scheduled per Semester
+            client.query(`
+                SELECT 
+                    c.semester,
+                    COUNT(ea.assignmentid) as scheduled_count
+                FROM public.course c
+                LEFT JOIN public.evaluation_assignments ea ON c.courseid = ea.courseid
+                WHERE ea.assignmentid IS NOT NULL OR c.semester IS NOT NULL
+                GROUP BY c.semester
+                ORDER BY c.semester DESC
+            `),
+            
+            // 11. Percentage of Scheduled Peer Evals that have been Completed
+            client.query(`
+                SELECT 
+                    COUNT(*) as total_assignments,
+                    COUNT(completed_at) as completed_assignments
+                FROM public.evaluation_assignments
+            `)
+        ]);
+        
+        // Calculate percentages
+        const submissionRate = submissionRateResult.rows[0];
+        const submissionPercentage = submissionRate.total_students > 0 
+            ? ((submissionRate.students_with_submissions / submissionRate.total_students) * 100).toFixed(1)
+            : 0;
+        
+        const completionRate = completionRateResult.rows[0];
+        const completionPercentage = completionRate.total_assignments > 0
+            ? ((completionRate.completed_assignments / completionRate.total_assignments) * 100).toFixed(1)
+            : 0;
+        
+        const overallAvg = avgScoreResult.rows[0].average_score 
+            ? parseFloat(avgScoreResult.rows[0].average_score).toFixed(2)
+            : null;
+        
+        res.status(200).json({
+            totalEvaluations: parseInt(totalEvaluationsResult.rows[0].count) || 0,
+            overallAverageScore: overallAvg,
+            studentScores: studentScoresResult.rows.map(row => ({
+                studentId: row.studentid,
+                studentName: row.studentname,
+                averageScore: parseFloat(row.average_score).toFixed(2),
+                evaluationCount: parseInt(row.evaluation_count)
+            })),
+            totalStudents: parseInt(totalStudentsResult.rows[0].count) || 0,
+            submissionRate: {
+                total: parseInt(submissionRate.total_students) || 0,
+                submitted: parseInt(submissionRate.students_with_submissions) || 0,
+                percentage: parseFloat(submissionPercentage)
+            },
+            studentsPerGroup: studentsPerGroupResult.rows.map(row => ({
+                groupId: row.groupid,
+                groupName: row.group_name,
+                courseId: row.courseid,
+                courseName: row.course_name,
+                studentCount: parseInt(row.student_count) || 0
+            })),
+            professorStats: professorStatsResult.rows.map(row => ({
+                professorId: row.professorid,
+                professorName: row.professorname,
+                courseCount: parseInt(row.course_count) || 0,
+                studentCount: parseInt(row.student_count) || 0
+            })),
+            evaluationsPerProfessor: evaluationsPerProfessorResult.rows.map(row => ({
+                professorId: row.professorid,
+                professorName: row.professorname,
+                scheduledCount: parseInt(row.scheduled_count) || 0
+            })),
+            assignmentsPerGroup: assignmentsPerGroupResult.rows.map(row => ({
+                groupId: row.groupid,
+                groupName: row.group_name,
+                courseId: row.courseid,
+                courseName: row.course_name,
+                assignmentCount: parseInt(row.assignment_count) || 0
+            })),
+            evaluationsPerSemester: evaluationsPerSemesterResult.rows.map(row => ({
+                semester: row.semester || 'Unknown',
+                scheduledCount: parseInt(row.scheduled_count) || 0
+            })),
+            completionRate: {
+                total: parseInt(completionRate.total_assignments) || 0,
+                completed: parseInt(completionRate.completed_assignments) || 0,
+                percentage: parseFloat(completionPercentage)
+            }
+        });
+        
+    } catch (err) {
+        console.error('[ANALYTICS] ERROR:', err.message);
+        console.error('[ANALYTICS] Stack:', err.stack);
+        res.status(500).json({ 
+            message: 'Failed to fetch analytics data',
+            error: err.message 
+        });
     } finally {
         if (client) {
             client.release();

@@ -11,6 +11,7 @@ import CourseCreation from './components/CourseCreation.js';
 import CourseRoster from './components/CourseRoster.js';
 import GroupManagement from './components/GroupManagement.js';
 import EvaluationAssignment from './components/EvaluationAssignment.js';
+import AnalyticsDashboard from './components/AnalyticsDashboard.js';
 import DisclaimerBanner from './components/DisclaimerBanner.js';
 import { AuthProvider, useAuth } from './contexts/AuthContext.js';
 import { BrowserRouter as Router, Routes, Route, Link, Navigate } from 'react-router-dom';
@@ -70,6 +71,7 @@ function AppContent() {
                 <>
                   <Nav.Link as={Link} to="/dashboard" className="text-light">Classes</Nav.Link>
                   <Nav.Link as={Link} to="/create-course" className="text-light">Create Course</Nav.Link>
+                  <Nav.Link as={Link} to="/analytics" className="text-light">Analytics</Nav.Link>
                 </>
               )}
               <Nav.Link onClick={logout} className="text-light" style={{ cursor: 'pointer' }}>
@@ -126,6 +128,11 @@ function AppContent() {
         <Route path="/evaluation-assignments/:courseId" element={
           <ProtectedRoute allowedRoles={['professor']}>
             <EvaluationAssignment />
+          </ProtectedRoute>
+        } />
+        <Route path="/analytics" element={
+          <ProtectedRoute allowedRoles={['professor']}>
+            <AnalyticsDashboard />
           </ProtectedRoute>
         } />
       </Routes>

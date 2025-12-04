@@ -12,21 +12,38 @@ const fs = require('fs');
 const app = express();
 
 // DB - supports Railway DATABASE_URL or individual env vars
-const pool = new Pool(
-  process.env.DATABASE_URL
-    ? {
-        connectionString: process.env.DATABASE_URL,
-        ssl: { rejectUnauthorized: false }
-      }
-    : {
-        host: process.env.DB_HOST,
-        user: process.env.DB_USER,
-        password: process.env.DB_PASSWORD,
-        database: process.env.DB_NAME,
-        port: Number(process.env.DB_PORT),
-        ssl: { rejectUnauthorized: false }
-      }
-);
+const poolConfig = process.env.DATABASE_URL
+  ? {
+      connectionString: process.env.DATABASE_URL,
+      ssl: { rejectUnauthorized: false },
+      // Production pool settings
+      max: 10, // Maximum number of clients in the pool
+      idleTimeoutMillis: 30000, // Close idle clients after 30 seconds
+      connectionTimeoutMillis: 10000, // Return error after 10 seconds if connection could not be established
+    }
+  : {
+      host: process.env.DB_HOST,
+      user: process.env.DB_USER,
+      password: process.env.DB_PASSWORD,
+      database: process.env.DB_NAME,
+      port: Number(process.env.DB_PORT),
+      ssl: { rejectUnauthorized: false },
+      // Production pool settings
+      max: 10,
+      idleTimeoutMillis: 30000,
+      connectionTimeoutMillis: 10000,
+    };
+
+const pool = new Pool(poolConfig);
+
+// Database pool error handlers
+pool.on('error', (err) => {
+  console.error('[DB POOL] Unexpected error on idle client:', err);
+});
+
+pool.on('connect', () => {
+  console.log('[DB POOL] New client connected to database');
+});
 
 pool.connect()
   .then(async (c) => { 
@@ -48,20 +65,70 @@ pool.connect()
       if (!tableCheck.rows[0].exists) {
         console.error('[DB] ⚠️ WARNING: Users table does not exist! Database schema may need to be created.');
       }
+      
+      // Test a simple query
+      await c.query('SELECT NOW()');
+      console.log('[DB] ✅ Query test successful');
     } catch (err) {
       console.error('[DB] ⚠️ Could not check tables:', err.message);
+      console.error('[DB] ⚠️ Error code:', err.code);
+      console.error('[DB] ⚠️ Error detail:', err.detail);
     }
     
     c.release(); 
   })
   .catch(err => {
-    console.error('[DB] ❌', err.message);
+    console.error('[DB] ❌ Connection failed:', err.message);
+    console.error('[DB] ❌ Error code:', err.code);
     if (err.code === 'ECONNREFUSED') console.error('[DB] ⚠️ Check DO Trusted Sources or network');
+    if (err.code === '28P01') console.error('[DB] ⚠️ Authentication failed - check DB credentials');
+    if (err.code === '3D000') console.error('[DB] ⚠️ Database does not exist');
   });
 
 // middleware
 app.use(cors({ origin: process.env.CORS_ORIGIN || '*', credentials: true }));
 app.use(express.json());
+
+// Request logging middleware for API routes
+app.use((req, res, next) => {
+  if (req.path.startsWith('/api')) {
+    console.log(`[API] ${req.method} ${req.path}`, {
+      query: req.query,
+      body: req.method === 'POST' || req.method === 'PUT' ? '***' : undefined
+    });
+  }
+  next();
+});
+
+// Add health check endpoints early for Railway/deployment platforms
+app.get('/health', (req, res) => {
+  res.status(200).json({ status: 'ok', timestamp: new Date().toISOString() });
+});
+
+// Simple root endpoint for Railway health checks (before static file serving)
+app.get('/', (req, res, next) => {
+  // If it's an API health check or the frontend isn't built yet, return JSON
+  if (req.headers.accept && req.headers.accept.includes('application/json')) {
+    return res.json({ 
+      message: 'SMU Peer Evaluation API Server',
+      status: 'running',
+      health: '/health'
+    });
+  }
+  // Otherwise, let the static file middleware handle it
+  next();
+});
+
+// Global error handlers to prevent crashes
+process.on('unhandledRejection', (err) => {
+  console.error('[UNHANDLED REJECTION]', err);
+  // Don't exit - let the server continue running
+});
+
+process.on('uncaughtException', (err) => {
+  console.error('[UNCAUGHT EXCEPTION]', err);
+  // Don't exit - let the server continue running
+});
 
 // API routes (all routes are inline below)
 // Health check endpoint at /api
@@ -268,6 +335,7 @@ app.post('/api/login', async (req, res) => {
     
     try {
         client = await pool.connect();
+        console.log('[LOGIN] Database connection acquired');
         
         // Find user by username or email
         const userQuery = `
@@ -276,6 +344,7 @@ app.post('/api/login', async (req, res) => {
             WHERE username = $1 OR email = $1
         `;
         
+        console.log('[LOGIN] Querying user:', username);
         const result = await client.query(userQuery, [username]);
         
         if (result.rows.length === 0) {
@@ -1686,6 +1755,23 @@ app.post('/api/courses/:courseId/groups', async (req, res) => {
             return res.status(404).json({ message: 'Course not found' });
         }
         
+        // Check if a group with this name already exists for this course
+        const existingGroupQuery = `
+            SELECT DISTINCT g.groupid, g.group_name
+            FROM public."group" g
+            INNER JOIN public.student_group sg ON g.groupid = sg.groupid
+            WHERE LOWER(g.group_name) = LOWER($1) AND sg.courseid = $2
+            LIMIT 1;
+        `;
+        
+        const existingGroup = await client.query(existingGroupQuery, [groupName.trim(), courseId]);
+        
+        if (existingGroup.rows.length > 0) {
+            return res.status(400).json({ 
+                message: `A group with the name "${groupName}" already exists in this course` 
+            });
+        }
+        
         const insertQuery = `
             INSERT INTO public."group" (group_name)
             VALUES ($1)
@@ -1721,13 +1807,15 @@ app.get('/api/courses/:courseId/groups', async (req, res) => {
     try {
         client = await pool.connect();
         
-        // Get all groups and count students in each for this course
+        // Get only groups that have students assigned in this course
         const query = `
             SELECT g.groupid, g.group_name,
                    COUNT(sg.studentid) as student_count
             FROM public."group" g
-            LEFT JOIN public.student_group sg ON g.groupid = sg.groupid AND sg.courseid = $1
+            INNER JOIN public.student_group sg ON g.groupid = sg.groupid
+            WHERE sg.courseid = $1
             GROUP BY g.groupid, g.group_name
+            HAVING COUNT(sg.studentid) > 0
             ORDER BY g.group_name;
         `;
         
@@ -2455,9 +2543,62 @@ app.delete('/api/evaluation-assignments/:assignmentId', async (req, res) => {
     }
 });
 
+// Global error handler middleware - must be after all routes but before static files
+app.use((err, req, res, next) => {
+  console.error('[ERROR HANDLER]', {
+    path: req.path,
+    method: req.method,
+    error: err.message,
+    code: err.code,
+    detail: err.detail,
+    stack: process.env.NODE_ENV === 'development' ? err.stack : undefined
+  });
+  
+  // Database connection errors
+  if (err.code === 'ECONNREFUSED' || err.code === 'ENOTFOUND') {
+    return res.status(503).json({
+      message: 'Database connection failed. Please try again.',
+      error: 'DATABASE_CONNECTION_ERROR',
+      detail: err.message
+    });
+  }
+  
+  // Database query errors
+  if (err.code && err.code.startsWith('42')) {
+    return res.status(500).json({
+      message: 'Database query error. Please check the logs.',
+      error: 'DATABASE_QUERY_ERROR',
+      detail: err.message
+    });
+  }
+  
+  // Authentication errors
+  if (err.code && err.code.startsWith('28')) {
+    return res.status(500).json({
+      message: 'Database authentication failed.',
+      error: 'DATABASE_AUTH_ERROR',
+      detail: err.message
+    });
+  }
+  
+  // Default error response
+  res.status(err.status || 500).json({
+    message: err.message || 'Internal server error',
+    error: err.code || 'INTERNAL_ERROR',
+    detail: err.detail || null
+  });
+});
+
 // Serve frontend build
 const frontendBuildPath = path.join(__dirname, '../frontend-clean/build');
-app.use(express.static(frontendBuildPath));
+
+// Only serve static files if build directory exists
+if (fs.existsSync(frontendBuildPath)) {
+  app.use(express.static(frontendBuildPath));
+  console.log('[SERVER] Frontend build directory found, serving static files');
+} else {
+  console.warn('[SERVER] ⚠️ Frontend build directory not found, static files will not be served');
+}
 
 // Catch-all middleware: serve React app for all non-API routes
 app.use((req, res, next) => {
@@ -2465,10 +2606,62 @@ app.use((req, res, next) => {
   if (req.path.startsWith('/api')) {
     return next();
   }
+  
+  // If build directory doesn't exist, return a simple message
+  if (!fs.existsSync(frontendBuildPath)) {
+    return res.status(503).json({ 
+      message: 'Frontend build not available. Please rebuild the frontend.',
+      status: 'building'
+    });
+  }
+  
   // Serve index.html for all other routes (React Router)
-  res.sendFile(path.join(frontendBuildPath, 'index.html'));
+  const indexPath = path.join(frontendBuildPath, 'index.html');
+  if (fs.existsSync(indexPath)) {
+    res.sendFile(indexPath);
+  } else {
+    res.status(503).json({ 
+      message: 'Frontend not built yet. Please wait for the build to complete.',
+      status: 'building'
+    });
+  }
 });
 
-// start
+// Start server with proper error handling
 const port = process.env.PORT || 3001;
-app.listen(port, '0.0.0.0', () => console.log(`Server running on ${port}`));
+const server = app.listen(port, '0.0.0.0', () => {
+  console.log(`[SERVER] ✅ Server running on port ${port}`);
+  console.log(`[SERVER] Health check available at http://0.0.0.0:${port}/health`);
+});
+
+// Handle server errors gracefully
+server.on('error', (err) => {
+  console.error('[SERVER] ❌ Server error:', err);
+  if (err.code === 'EADDRINUSE') {
+    console.error(`[SERVER] Port ${port} is already in use`);
+    process.exit(1);
+  } else {
+    console.error('[SERVER] Unexpected server error:', err.message);
+  }
+});
+
+// Handle graceful shutdown for Railway/deployment platforms
+const gracefulShutdown = (signal) => {
+  console.log(`[SERVER] Received ${signal}, shutting down gracefully...`);
+  server.close(() => {
+    console.log('[SERVER] HTTP server closed');
+    pool.end(() => {
+      console.log('[SERVER] Database pool closed');
+      process.exit(0);
+    });
+  });
+  
+  // Force close after 10 seconds
+  setTimeout(() => {
+    console.error('[SERVER] Forced shutdown after timeout');
+    process.exit(1);
+  }, 10000);
+};
+
+process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
+process.on('SIGINT', () => gracefulShutdown('SIGINT'));

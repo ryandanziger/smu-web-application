@@ -206,17 +206,51 @@ export default function EvaluationForm() {
   const [evaluations, setEvaluations] = useState([]);
   const [showSuccess, setShowSuccess] = useState(false);
   const [errors, setErrors] = useState({});
-  const [formData, setFormData] = useState(() => {
+  
+  // Store form data per teammate (keyed by teammate ID)
+  const [teammateFormData, setTeammateFormData] = useState({});
+  
+  // Get the current teammate to evaluate from the fetched list
+  const currentTeammate = teammates[currentTeammateIndex];
+  
+  // Get or initialize form data for current teammate
+  const getInitialFormData = () => {
     const initial = evaluationCriteria.reduce((acc, criteria) => {
       acc[criteria.key] = null;
       return acc;
     }, {});
     initial.feedback = '';
     return initial;
-  });
+  };
   
-  // Get the current teammate to evaluate from the fetched list
-  const currentTeammate = teammates[currentTeammateIndex];
+  // Get current form data for the active teammate
+  const formData = currentTeammate 
+    ? (teammateFormData[currentTeammate.id] || getInitialFormData())
+    : getInitialFormData();
+  
+  // Update form data for the current teammate
+  const updateFormData = useCallback((updates) => {
+    if (!currentTeammate) return;
+    setTeammateFormData(prev => {
+      const currentData = prev[currentTeammate.id] || getInitialFormData();
+      return {
+        ...prev,
+        [currentTeammate.id]: {
+          ...currentData,
+          ...updates
+        }
+      };
+    });
+  }, [currentTeammate]);
+  
+  // Clear form data for a specific teammate (after submission)
+  const clearTeammateFormData = (teammateId) => {
+    setTeammateFormData(prev => {
+      const updated = { ...prev };
+      delete updated[teammateId];
+      return updated;
+    });
+  };
 
   
   // --- Fetch Teammates Data on Component Mount ---
@@ -255,17 +289,19 @@ export default function EvaluationForm() {
     
     fetchTeammates();
   }, [courseId, groupId, user]);
-
-
-  // --- Helper Functions (UNCHANGED) ---
-  const resetForm = useCallback(() => {
-    const initial = evaluationCriteria.reduce((acc, criteria) => {
-        acc[criteria.key] = null;
-        return acc;
-      }, {});
-      initial.feedback = '';
-      setFormData(initial);
+  
+  // Clear errors when switching teammates (form data is automatically restored)
+  useEffect(() => {
+    if (currentTeammate) {
       setErrors({});
+    }
+  }, [currentTeammateIndex, currentTeammate]);
+
+
+  // --- Helper Functions ---
+  const resetForm = useCallback(() => {
+    // Only clear errors, don't reset form data (it's saved per teammate)
+    setErrors({});
   }, []);
 
   const validateForm = useCallback(() => {
@@ -325,6 +361,10 @@ export default function EvaluationForm() {
 
         const evaluation = { ...apiPayload, teammateName: currentTeammate.name };
         setEvaluations([...evaluations, evaluation]);
+        
+        // Clear form data for this teammate after successful submission
+        clearTeammateFormData(currentTeammate.id);
+        setErrors({});
 
         if (currentTeammateIndex < teammates.length - 1) { 
             setCurrentTeammateIndex(currentTeammateIndex + 1);
@@ -613,14 +653,14 @@ export default function EvaluationForm() {
           </div>
 
           <Form onSubmit={handleSubmit}>
-              {/* Rating Inputs (UNCHANGED) */}
+              {/* Rating Inputs */}
               {evaluationCriteria.map(({ key, label, scaleType, colorType }) => (
                   <RatingInput
                       key={key}
                       label={label}
                       name={key}
                       value={formData[key]}
-                      onChange={(value) => setFormData({ ...formData, [key]: value })}
+                      onChange={(value) => updateFormData({ [key]: value })}
                       error={errors[key]}
                       scaleType={scaleType}
                       colorType={colorType} 
@@ -646,8 +686,8 @@ export default function EvaluationForm() {
                           rows={4}
                           style={textareaStyle}
                           placeholder="Start typing here..."
-                          value={formData.feedback}
-                          onChange={(e) => setFormData({ ...formData, feedback: e.target.value })}
+                          value={formData.feedback || ''}
+                          onChange={(e) => updateFormData({ feedback: e.target.value })}
                       />
                       <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '4px' }}>
                           <span style={{ fontSize: '12px', color: COLORS.TEXT_SECONDARY }}>
@@ -666,7 +706,7 @@ export default function EvaluationForm() {
                       disabled={currentTeammateIndex === 0}
                       onClick={() => {
                           setCurrentTeammateIndex(currentTeammateIndex - 1);
-                          resetForm();
+                          setErrors({}); // Clear errors but keep form data
                       }}
                   >
                       PREVIOUS

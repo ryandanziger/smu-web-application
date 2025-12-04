@@ -29,7 +29,31 @@ const pool = new Pool(
 );
 
 pool.connect()
-  .then(c => { console.log('[DB] ✅ Connected'); c.release(); })
+  .then(async (c) => { 
+    console.log('[DB] ✅ Connected');
+    console.log('[DB] Host:', process.env.DB_HOST || 'from DATABASE_URL');
+    console.log('[DB] Database:', process.env.DB_NAME || 'from DATABASE_URL');
+    
+    // Test if users table exists
+    try {
+      const tableCheck = await c.query(`
+        SELECT EXISTS (
+          SELECT FROM information_schema.tables 
+          WHERE table_schema = 'public' 
+          AND table_name = 'users'
+        );
+      `);
+      console.log('[DB] Users table exists:', tableCheck.rows[0].exists);
+      
+      if (!tableCheck.rows[0].exists) {
+        console.error('[DB] ⚠️ WARNING: Users table does not exist! Database schema may need to be created.');
+      }
+    } catch (err) {
+      console.error('[DB] ⚠️ Could not check tables:', err.message);
+    }
+    
+    c.release(); 
+  })
   .catch(err => {
     console.error('[DB] ❌', err.message);
     if (err.code === 'ECONNREFUSED') console.error('[DB] ⚠️ Check DO Trusted Sources or network');
@@ -214,8 +238,15 @@ app.post('/api/signup', async (req, res) => {
         });
         
     } catch (err) {
-        console.error('Signup error:', err.stack);
-        res.status(500).json({ message: 'Failed to create user account' });
+        console.error('[SIGNUP] ERROR:', err.message);
+        console.error('[SIGNUP] ERROR Code:', err.code);
+        console.error('[SIGNUP] ERROR Detail:', err.detail);
+        console.error('[SIGNUP] ERROR Stack:', err.stack);
+        res.status(500).json({ 
+            message: 'Failed to create user account',
+            error: err.message,
+            detail: err.detail || null
+        });
     } finally {
         if (client) {
             client.release();

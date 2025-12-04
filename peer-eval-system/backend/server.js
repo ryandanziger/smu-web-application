@@ -2717,7 +2717,7 @@ app.get('/api/analytics/dashboard', async (req, res) => {
                 JOIN public.peerevaluation_target pet ON pe.evaluationid = pet.evaluationid
             `),
             
-            // 3. Average Peer Evaluation Scores by Student
+            // 3. Average Peer Evaluation Scores by Student (with category breakdown)
             client.query(`
                 SELECT 
                     s.studentid,
@@ -2726,6 +2726,11 @@ app.get('/api/analytics/dashboard', async (req, res) => {
                         (pet.contribution_score + pet.plan_mgmt_score + pet.team_climate_score + 
                          pet.conflict_res_score + pet.overall_rating) / 5.0
                     ) as average_score,
+                    AVG(pet.contribution_score) as contribution_score,
+                    AVG(pet.plan_mgmt_score) as plan_mgmt_score,
+                    AVG(pet.team_climate_score) as team_climate_score,
+                    AVG(pet.conflict_res_score) as conflict_res_score,
+                    AVG(pet.overall_rating) as overall_rating,
                     COUNT(pet.evaluationid) as evaluation_count
                 FROM public.student s
                 LEFT JOIN public.peerevaluation_target pet ON pet.evaluateeid = s.studentid
@@ -2851,6 +2856,11 @@ app.get('/api/analytics/dashboard', async (req, res) => {
                 studentId: row.studentid,
                 studentName: row.studentname,
                 averageScore: parseFloat(row.average_score).toFixed(2),
+                contributionScore: row.contribution_score ? parseFloat(row.contribution_score).toFixed(2) : null,
+                planMgmtScore: row.plan_mgmt_score ? parseFloat(row.plan_mgmt_score).toFixed(2) : null,
+                teamClimateScore: row.team_climate_score ? parseFloat(row.team_climate_score).toFixed(2) : null,
+                conflictResScore: row.conflict_res_score ? parseFloat(row.conflict_res_score).toFixed(2) : null,
+                overallRating: row.overall_rating ? parseFloat(row.overall_rating).toFixed(2) : null,
                 evaluationCount: parseInt(row.evaluation_count)
             })),
             totalStudents: parseInt(totalStudentsResult.rows[0].count) || 0,

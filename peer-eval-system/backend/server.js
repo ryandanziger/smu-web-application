@@ -2428,12 +2428,13 @@ app.delete('/api/evaluation-assignments/:assignmentId', async (req, res) => {
 const frontendBuildPath = path.join(__dirname, '../frontend-clean/build');
 app.use(express.static(frontendBuildPath));
 
-// Catch-all route: serve React app for all non-API routes
-app.get('*', (req, res) => {
+// Catch-all middleware: serve React app for all non-API routes
+app.use((req, res, next) => {
   // Don't serve index.html for API routes
   if (req.path.startsWith('/api')) {
-    return res.status(404).json({ message: 'API endpoint not found' });
+    return next();
   }
+  // Serve index.html for all other routes (React Router)
   res.sendFile(path.join(frontendBuildPath, 'index.html'));
 });
 

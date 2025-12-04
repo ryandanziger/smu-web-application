@@ -13,16 +13,70 @@ const fs = require('fs');
 const app = express();
 const port = process.env.PORT || 3001;
 
-// Database Configuration 
-const pool = new Pool({
-  host: process.env.DB_HOST,
-  user: process.env.DB_USER,
-  password: process.env.DB_PASSWORD,
-  database: process.env.DB_NAME,
-  port: process.env.DB_PORT,
-  ssl: {
-    rejectUnauthorized: false
+// Database Configuration - DigitalOcean PostgreSQL
+// Supports both DATABASE_URL and individual environment variables
+let pool;
+
+if (process.env.DATABASE_URL) {
+  // Use DATABASE_URL if provided (common in Render/deployment)
+  const parse = require('pg-connection-string').parse;
+  const parsed = parse(process.env.DATABASE_URL);
+  
+  pool = new Pool({
+    ...parsed,
+    ssl: {
+      rejectUnauthorized: false // Required for DigitalOcean managed PostgreSQL
+    },
+    max: 10, // Connection pool size
+    idleTimeoutMillis: 30000,
+    connectionTimeoutMillis: 10000,
+  });
+  
+  console.log('[DB] ✅ Using DATABASE_URL connection');
+} else {
+  // Use individual environment variables
+  if (!process.env.DB_HOST || !process.env.DB_USER || !process.env.DB_PASSWORD || !process.env.DB_NAME) {
+    console.error('[DB] ❌ Missing required database environment variables!');
+    console.error('[DB] Required: DB_HOST, DB_USER, DB_PASSWORD, DB_NAME');
+    console.error('[DB] Optional: DB_PORT (defaults to 5432)');
+    process.exit(1);
   }
+  
+  pool = new Pool({
+    host: process.env.DB_HOST,
+    user: process.env.DB_USER,
+    password: process.env.DB_PASSWORD,
+    database: process.env.DB_NAME,
+    port: process.env.DB_PORT || 5432,
+    ssl: {
+      rejectUnauthorized: false // Required for DigitalOcean managed PostgreSQL
+    },
+    max: 10, // Connection pool size
+    idleTimeoutMillis: 30000,
+    connectionTimeoutMillis: 10000,
+  });
+  
+  console.log('[DB] ✅ Using individual environment variables');
+  console.log(`[DB] Host: ${process.env.DB_HOST}, Database: ${process.env.DB_NAME}`);
+}
+
+// Test database connection on startup
+pool.connect()
+  .then(client => {
+    console.log('[DB] ✅ Successfully connected to DigitalOcean PostgreSQL database');
+    client.release();
+  })
+  .catch(err => {
+    console.error('[DB] ❌ Failed to connect to database:');
+    console.error('[DB] Error:', err.message);
+    console.error('[DB] Code:', err.code);
+    console.error('[DB] Please check your database credentials and connection settings');
+    // Don't exit - let the server start and log errors for debugging
+  });
+
+// Handle pool errors
+pool.on('error', (err) => {
+  console.error('[DB] ❌ Unexpected error on idle database client:', err);
 });
 
 // backend/server.js (Add this after the pool configuration)
@@ -93,9 +147,47 @@ app.get('/', (req, res) => {
         message: 'SMU Peer Evaluation API Server',
         status: 'running',
         endpoints: {
-            professors: '/api/professors',
-            login: '/api/login',
-            courses: '/api/courses'
+            // Authentication
+            signup: 'POST /api/signup',
+            login: 'POST /api/login',
+            forgotPassword: 'POST /api/forgot-password',
+            resetPassword: 'POST /api/reset-password',
+            verifyResetToken: 'GET /api/verify-reset-token/:token',
+            
+            // Professors
+            professors: 'GET /api/professors',
+            professorCourses: 'GET /api/professors/:professorId/courses',
+            
+            // Courses
+            courses: 'GET /api/courses',
+            courseById: 'GET /api/courses/:courseId',
+            createCourse: 'POST /api/courses',
+            deleteCourse: 'DELETE /api/courses/:courseId',
+            courseRoster: 'GET /api/courses/:courseId/roster',
+            uploadCourseRoster: 'POST /api/courses/:courseId/upload-roster',
+            
+            // Students
+            students: 'GET /api/students',
+            uploadStudents: 'POST /api/upload-students',
+            studentCourses: 'GET /api/students/:studentEmail/courses',
+            
+            // Groups
+            createGroup: 'POST /api/courses/:courseId/groups',
+            getGroups: 'GET /api/courses/:courseId/groups',
+            addStudentsToGroup: 'POST /api/courses/:courseId/groups/:groupId/students',
+            getGroupStudents: 'GET /api/courses/:courseId/groups/:groupId/students',
+            removeStudentFromGroup: 'DELETE /api/courses/:courseId/groups/:groupId/students/:studentId',
+            
+            // Evaluations
+            submitEvaluation: 'POST /api/submit-evaluation',
+            getTeammates: 'GET /api/teammates',
+            
+            // Evaluation Assignments
+            createEvaluationAssignment: 'POST /api/evaluation-assignments',
+            getCourseAssignments: 'GET /api/courses/:courseId/evaluation-assignments',
+            getStudentAssignments: 'GET /api/students/:studentEmail/evaluation-assignments',
+            completeAssignment: 'PATCH /api/evaluation-assignments/:assignmentId/complete',
+            deleteAssignment: 'DELETE /api/evaluation-assignments/:assignmentId'
         }
     });
 });

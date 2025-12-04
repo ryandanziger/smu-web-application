@@ -2506,15 +2506,9 @@ app.delete('/api/evaluation-assignments/:assignmentId', async (req, res) => {
     }
 });
 
-// Serve frontend build (must be after all API routes)
 app.use(express.static(path.join(__dirname, '../frontend-clean/build')));
 
-// Catch-all handler: send back React's index.html file for client-side routing
-app.get('*', (req, res) => {
-  // Don't serve index.html for API routes
-  if (req.path.startsWith('/api')) {
-    return res.status(404).json({ message: 'API endpoint not found' });
-  }
+app.get('/*', (req, res) => {
   res.sendFile(path.join(__dirname, '../frontend-clean/build', 'index.html'));
 });
 
@@ -2522,5 +2516,4 @@ app.get('*', (req, res) => {
 app.listen(port, '0.0.0.0', () => {
   console.log(`Server running on port ${port}`);
   console.log('Teammate fetch API ready at /api/teammates');
-  console.log('Frontend build served from ../frontend-clean/build');
 });

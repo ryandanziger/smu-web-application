@@ -182,6 +182,66 @@ app.get('/api', (req, res) => {
     });
 });
 
+// ---------------------------------------------
+// --- Test Endpoint: Database Query Test ---
+// ---------------------------------------------
+app.get('/api/test-db', async (req, res) => {
+    let client;
+    try {
+        console.log('[TEST-DB] Starting database test...');
+        client = await pool.connect();
+        console.log('[TEST-DB] ✅ Connection acquired');
+        
+        // Test 1: Simple query
+        const timeResult = await client.query('SELECT NOW()');
+        console.log('[TEST-DB] ✅ Simple query successful');
+        
+        // Test 2: Check if users table exists
+        const tableCheck = await client.query(`
+            SELECT EXISTS (
+                SELECT FROM information_schema.tables 
+                WHERE table_schema = 'public' 
+                AND table_name = 'users'
+            );
+        `);
+        const usersTableExists = tableCheck.rows[0].exists;
+        console.log('[TEST-DB] Users table exists:', usersTableExists);
+        
+        // Test 3: Try to query users table (if it exists)
+        let userCount = 0;
+        if (usersTableExists) {
+            const userResult = await client.query('SELECT COUNT(*) FROM public.users');
+            userCount = parseInt(userResult.rows[0].count);
+            console.log('[TEST-DB] ✅ Users table query successful, count:', userCount);
+        }
+        
+        res.json({
+            status: 'success',
+            database: {
+                connection: 'ok',
+                currentTime: timeResult.rows[0].now,
+                usersTableExists: usersTableExists,
+                userCount: userCount
+            }
+        });
+    } catch (err) {
+        console.error('[TEST-DB] ❌ ERROR:', err.message);
+        console.error('[TEST-DB] ❌ Error Code:', err.code);
+        console.error('[TEST-DB] ❌ Error Detail:', err.detail);
+        res.status(500).json({
+            status: 'error',
+            error: err.message,
+            code: err.code,
+            detail: err.detail
+        });
+    } finally {
+        if (client) {
+            client.release();
+            console.log('[TEST-DB] Connection released');
+        }
+    }
+});
+
 // Configure multer for CSV file uploads
 const upload = multer({ 
     dest: 'uploads/',

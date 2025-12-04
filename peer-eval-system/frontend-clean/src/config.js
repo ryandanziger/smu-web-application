@@ -4,11 +4,11 @@
 // Check if we're in production
 const isProduction = window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1';
 
-// Use environment variable if set, otherwise:
-// - In production: use same origin (frontend and backend are served together)
-// - In development: use localhost:3001
-const API_URL = process.env.REACT_APP_API_URL || 
-                (isProduction ? '' : 'http://localhost:3001');
+// In production (when frontend is served by backend), always use relative URLs
+// In development, use localhost:3001 or env var if set
+const API_URL = isProduction 
+  ? '' // Always use relative URLs when served together
+  : (process.env.REACT_APP_API_URL || 'http://localhost:3001');
 
 // Debug logging - will show in browser console
 console.log('🔧 API Configuration:');
